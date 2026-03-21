@@ -31,6 +31,16 @@ typedef struct {
 	int current_time;       // Current simulation time
 	/* additional fields for metrics, Gantt chart, etc. */
 	/* Recall: CMSC 141 */
+
+
+	int *ready_queue;      // stores process indices
+    int ready_head;			// we'll implement ready queue as circular array for O(1) enqueue/dequeue
+    int ready_tail;
+    int ready_count;
+    int ready_capacity;
+
+    int running_index;     // -1 if CPU idle
+    int completed_count;
 } SchedulerState;
 
 // Return 0 on success, -1 on error
@@ -69,6 +79,10 @@ typedef struct Event {
 	Process *process;
 	struct Event *next;
 } Event;
+
+// Event queue helpers (implemented in src/utils.c)
+Event *initialize_events(SchedulerState *state);
+Event *pop_event(Event **head);
 
 // Top-level simulation entry point
 void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm);
