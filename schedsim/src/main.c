@@ -203,6 +203,6 @@ void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
     
 
     // calculate_metrics and print_results will be in metrics.c and gantt.c
-    // calculate_metrics(state);
-    // print_metrics(state);
+    calculate_metrics(state);
+    print_metrics(state);
 }
