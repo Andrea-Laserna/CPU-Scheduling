@@ -3,6 +3,7 @@
 #include <string.h>
 #include "scheduler.h"
 #include "metrics.h"
+#include "utils.h"
 
 // Entry point
 int main(int argc, char *argv[]) {
@@ -68,6 +69,7 @@ int main(int argc, char *argv[]) {
     // Cleanup
     // Safe even when state.processes is NULL
     free(state.processes);
+    free(state.ready_queue);
     
     return 0;
 }
@@ -79,28 +81,10 @@ static int process_index_from_ptr(SchedulerState *state, Process *p) {
     return (int)(p - state->processes);
 }
 
-static int enqueue_ready(SchedulerState *state, int idx) {
-    if (state->ready_count == state->ready_capacity) return -1;
-    state->ready_queue[state->ready_tail] = idx;
-    state->ready_tail = (state->ready_tail + 1) % state->ready_capacity;
-    state->ready_count++;
-    return 0;
-}
-
-static int dequeue_ready(SchedulerState *state) {
-    if (state->ready_count == 0) return -1;
-    int idx = state->ready_queue[state->ready_head];
-    state->ready_head = (state->ready_head + 1) % state->ready_capacity;
-    state->ready_count--;
-    return idx;
-}
-
-
-
 
 static void handle_arrival(SchedulerState *state, Process *process, Event **event_queue) { // doesn't handle preemption yet
     int idx = process_index_from_ptr(state, process);
-    enqueue_ready(state, idx); 
+    enqueue_ready(state, idx); // TODO: Check  return value in case queue is full.
 
     // If CPU idle, dispatch immediately
     if (state->running_index == -1) {
@@ -110,6 +94,8 @@ static void handle_arrival(SchedulerState *state, Process *process, Event **even
             if (p->start_time == -1) p->start_time = state->current_time;
             state->running_index = next;
 
+            //TODO: put this later in a funtion to avoid code duplication
+            //
             Event *done = malloc(sizeof(Event));
             if (!done) return; // handle allocation failure better in final version : Sometimes, if the computer is completely out of RAM, malloc() fails and returns NULL
             done->time = state->current_time + p->remaining_time;
@@ -127,7 +113,12 @@ static void handle_arrival(SchedulerState *state, Process *process, Event **even
                 done->next = cur->next;
                 cur->next = done;
             }
-        }
+            //
+        } 
+    } else {
+        // for preemptive algorithms
+        // if preempt 
+        // Do the Math (update running guy's remaining time) -> Assassinate his future completion event -> Put new guy on CPU.
     }
 }
 
@@ -204,5 +195,6 @@ void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
 
     // calculate_metrics and print_results will be in metrics.c and gantt.c
     calculate_metrics(state);
+    print_gantt_chart(state);
     print_metrics(state);
 }

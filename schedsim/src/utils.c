@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include "scheduler.h"
+#include "utils.h"
 // Event - node in the queue that records the process
 // State - processes, num_processes, current_time
 
@@ -55,4 +56,20 @@ Event* pop_event(Event **head) {
     *head = (*head)->next;
     // Return detached event node to caller
     return temp;
+}
+
+int enqueue_ready(SchedulerState *state, int idx) {
+    if (state->ready_count == state->ready_capacity) return -1;
+    state->ready_queue[state->ready_tail] = idx;
+    state->ready_tail = (state->ready_tail + 1) % state->ready_capacity;
+    state->ready_count++;
+    return 0;
+}
+
+int dequeue_ready(SchedulerState *state) {
+    if (state->ready_count == 0) return -1;
+    int idx = state->ready_queue[state->ready_head];
+    state->ready_head = (state->ready_head + 1) % state->ready_capacity;
+    state->ready_count--;
+    return idx;
 }
