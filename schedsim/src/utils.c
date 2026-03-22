@@ -4,61 +4,51 @@
 // Event - node in the queue that records the process
 // State - processes, num_processes, current_time
 
-// Use state to create the initial arrival events for all processes
 Event* initialize_events(SchedulerState *state) {
-    // Head pointer of the sorted event linked list
+    /*
+    issue to fix: check malloc return value first incase of failure
+    */
+
     Event *head = NULL;
 
     // Create one ARRIVAL event for each process
     for (int i = 0; i < state->num_processes; i++) {
-        // Allocate a new event node
         Event *new_event = malloc(sizeof(Event));
-        // Event happens exactly at process arrival time
         new_event->time = state->processes[i].arrival_time;
-        // Initial events are all arrivals
         new_event->type = EVENT_ARRIVAL;
-        // Keep direct pointer to that process
         new_event->process = &state->processes[i];
-        // Initialize next pointer before insertion
         new_event->next = NULL;
 
-        // Insert into sorted linked list (by time)
+        // Insert into event queue in sorted order by time
         if (!head || new_event->time < head->time) {
-            // Insert at beginning if list empty or event is earliest
             new_event->next = head;
             head = new_event;
         } else {
-            // Find insertion point for new event where ordering by time is preserved
             Event *curr = head;
-            // Keep moving until nextnode where current time > next time
             while (curr->next && curr->next->time <= new_event->time) {
                 curr = curr->next;
             }
-            // Link new event after current
-            // Insert new node between curr and curr next
             new_event->next = curr->next;
             curr->next = new_event;
         }
     }
-    // Return head of fully built, time-sorted event queue
+    
     return head;
 }
 
 // Pulls the next event from the queue
 Event* pop_event(Event **head) {
     // Guard against NULL pointer input or empty list
-    // Pointer to head pointer is NULL || List empty head points to NULL
     if (!head || !*head) return NULL;
-    // Remove current head and advance list
-    // Save current head to temp
+    
     Event *temp = *head;
-    // Advance head to 2nd node to remove first node from list
     *head = (*head)->next;
-    // Return detached event node to caller
+
     return temp;
 }
 
-int enqueue_ready(SchedulerState *state, int idx) {
+// Enqueue a process index into the ready queue
+int enqueue_ready(SchedulerState *state, int idx) { 
     if (state->ready_count == state->ready_capacity) return -1;
     state->ready_queue[state->ready_tail] = idx;
     state->ready_tail = (state->ready_tail + 1) % state->ready_capacity;
@@ -93,26 +83,29 @@ int select_next_process(SchedulerState *state, SchedulingAlgorithm algorithm) {
     }
 }
 
-int remove_ready_at_logical(SchedulerState *state, int logical_pos) {
-    if (!state) return -1;
-    if (state->ready_count <= 0) return -1;
-    if (logical_pos < 0 || logical_pos >= state->ready_count) return -1;
+// Remove a specific process index from the ready queue 
+int remove_ready_by_process_idx(SchedulerState *state, int process_idx) {
+    if (!state || state->ready_count <= 0) return -1;
+
+    int found_pos = -1;
+    for (int i = 0; i < state->ready_count; i++) {
+        int phys = (state->ready_head + i) % state->ready_capacity;
+        if (state->ready_queue[phys] == process_idx) {
+            found_pos = i;
+            break;
+        }
+    }
+    if (found_pos == -1) return -1;
 
     int cap = state->ready_capacity;
     int head = state->ready_head;
-
-    int remove_phys = (head + logical_pos) % cap;
-    int selected_idx = state->ready_queue[remove_phys];
-
-    // Shift left from logical_pos+1 ... ready_count-1
-    for (int i = logical_pos; i < state->ready_count - 1; i++) {
+    for (int i = found_pos; i < state->ready_count - 1; i++) {
         int from_phys = (head + i + 1) % cap;
-        int to_phys   = (head + i) % cap;
+        int to_phys = (head + i) % cap;
         state->ready_queue[to_phys] = state->ready_queue[from_phys];
     }
 
     state->ready_count--;
     state->ready_tail = (state->ready_head + state->ready_count) % cap;
-
-    return selected_idx;
+    return process_idx;
 }

@@ -3,52 +3,52 @@
 #include <string.h>
 #include "scheduler.h"
 #include "metrics.h"
+#include "gantt.h"
 #include "utils.h"
 
 // Entry point
 int main(int argc, char *argv[]) {
-    // Initialize simulation state
+
     SchedulerState state;
-    // Simulator starts at time 0
     state.current_time = 0;
-    // No processes loaded yet
     state.num_processes = 0;
-    // Process array is empty until load_processes succeeds
     state.processes = NULL;
 
-    // Default algorithm if user does not pass --algorithm
     SchedulingAlgorithm selected_algo = SCHED_FCFS; // Default
-    // Will store value passed through --input=... argument
     char *input_file = NULL;
 
     // Parse Command Line Arguments
     for (int i = 1; i < argc; i++) {
-        // Parse --algorithm=<NAME>
+        
         if (strncmp(argv[i], "--algorithm=", 12) == 0) {
             // Pointer to the text after "--algorithm="
             char *algo_name = argv[i] + 12;
-            // Map algorithm string to enum used internally.
+            
             if (strcmp(algo_name, "FCFS") == 0) selected_algo = SCHED_FCFS;
             else if (strcmp(algo_name, "SJF") == 0) selected_algo = SCHED_SJF;
             else if (strcmp(algo_name, "STCF") == 0) selected_algo = SCHED_STCF;
             else if (strcmp(algo_name, "RR") == 0) selected_algo = SCHED_RR;
             else if (strcmp(algo_name, "MLFQ") == 0) selected_algo = SCHED_MLFQ;
-        // Parse --input=<PATH>
+        
         } else if (strncmp(argv[i], "--input=", 8) == 0) {
-            // Pointer to the text after "--input=".
             input_file = argv[i] + 8;
         }
     }
 
     // Load Process Workload
     if (input_file) {
-        // This is where workload loading should happen
-        // TODO: enable once integrated with the rest of the simulator
+
         state.processes = load_processes(input_file, &state.num_processes);
+        
+        if (!state.processes) {
+            fprintf(stderr, "Error: Failed to load processes from %s\n", input_file);
+            return -1;
+        }
+
     } else {
         // Input file is required to run a simulation
         fprintf(stderr, "Error: No input file specified.\n");
-        return 1;
+        return -1;
     }
 
     state.ready_capacity = state.num_processes;
@@ -59,15 +59,13 @@ int main(int argc, char *argv[]) {
     state.running_index = -1;
     state.completed_count = 0;
 
-    // Run the Discrete-Event Simulator
-    // Confirms that argument parsing completed and run is about to start
     printf("Loaded %d processes from %s\n", state.num_processes, input_file);
     printf("Starting Simulation...\n");
-    // Dispatch into the simulation engine
+    
+    // Run the Discrete-Event Simulator
     simulate_scheduler(&state, selected_algo);
 
     // Cleanup
-    // Safe even when state.processes is NULL
     free(state.processes);
     free(state.ready_queue);
     
@@ -81,71 +79,51 @@ static int process_index_from_ptr(SchedulerState *state, Process *p) {
     return (int)(p - state->processes);
 }
 
-int remove_ready_by_process_idx(SchedulerState *state, int process_idx) {
-    if (!state || state->ready_count <= 0) return -1;
+static int push_completion_event(Event **event_queue, int when, Process *p) {
+    Event *done = malloc(sizeof(Event));
+    if (!done) return -1;
 
-    int found_pos = -1;
-    for (int i = 0; i < state->ready_count; i++) {
-        int phys = (state->ready_head + i) % state->ready_capacity;
-        if (state->ready_queue[phys] == process_idx) {
-            found_pos = i;
-            break;
-        }
+    done->time = when;
+    done->type = EVENT_COMPLETION;
+    done->process = p;
+    done->next = NULL;
+
+    if (!*event_queue || done->time < (*event_queue)->time) {
+        done->next = *event_queue;
+        *event_queue = done;
+    } else {
+        Event *cur = *event_queue;
+        while (cur->next && cur->next->time <= done->time) cur = cur->next;
+        done->next = cur->next;
+        cur->next = done;
     }
-    if (found_pos == -1) return -1;
+    return 0;
+}
 
-    int cap = state->ready_capacity;
-    int head = state->ready_head;
-    for (int i = found_pos; i < state->ready_count - 1; i++) {
-        int from_phys = (head + i + 1) % cap;
-        int to_phys = (head + i) % cap;
-        state->ready_queue[to_phys] = state->ready_queue[from_phys];
-    }
+static void try_dispatch(SchedulerState *state, Event **event_queue, SchedulingAlgorithm algorithm) {
+    // If CPU idle, dispatch immediately
+    if (state->running_index != -1) return; 
 
-    state->ready_count--;
-    state->ready_tail = (state->ready_head + state->ready_count) % cap;
-    return process_idx;
+    int next = select_next_process(state, algorithm);
+    if (next == -1) return; // No process ready to run
+    
+    if (remove_ready_by_process_idx(state, next) == -1) return;
+    
+    Process *p = &state->processes[next];
+    if (p->start_time == -1) p->start_time = state->current_time;
+    state->running_index = next;
+
+    int completion_time = state->current_time + p->remaining_time;
+    (void) push_completion_event(event_queue, completion_time, p); //TODO: Check return value in case of malloc failure.
+
+    
 }
 
 static void handle_arrival(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) { // doesn't handle preemption yet
     int idx = process_index_from_ptr(state, process);
     enqueue_ready(state, idx); // TODO: Check  return value in case queue is full.
 
-    // If CPU idle, dispatch immediately
-    if (state->running_index == -1) {
-        int next = select_next_process(state, algorithm);
-        if (next != -1) {
-            if (remove_ready_by_process_idx(state, next) == -1) return;
-            Process *p = &state->processes[next];
-            if (p->start_time == -1) p->start_time = state->current_time;
-            state->running_index = next;
-
-            //TODO: put this later in a funtion to avoid code duplication
-            //
-            Event *done = malloc(sizeof(Event));
-            if (!done) return; // handle allocation failure better in final version : Sometimes, if the computer is completely out of RAM, malloc() fails and returns NULL
-            done->time = state->current_time + p->remaining_time;
-            done->type = EVENT_COMPLETION;
-            done->process = p;
-            done->next = NULL;
-
-            // insert in time order (same style as initialize_events)
-            if (!*event_queue || done->time < (*event_queue)->time) {
-                done->next = *event_queue;
-                *event_queue = done;
-            } else {
-                Event *cur = *event_queue;
-                while (cur->next && cur->next->time <= done->time) cur = cur->next;
-                done->next = cur->next;
-                cur->next = done;
-            }
-            //
-        } 
-    } else {
-        // for preemptive algorithms
-        // if preempt 
-        // Do the Math (update running guy's remaining time) -> Assassinate his future completion event -> Put new guy on CPU.
-    }
+    try_dispatch(state, event_queue, algorithm);
 }
 
 static void handle_completion(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) {
@@ -157,32 +135,7 @@ static void handle_completion(SchedulerState *state, Process *process, Event **e
     state->completed_count++;
     state->running_index = -1;
 
-    // Dispatch next process based on the selected algorithm
-    int next = select_next_process(state, algorithm);
-    if (next != -1) {
-        // Remove the selected process from ready queue before running it.
-        if (remove_ready_by_process_idx(state, next) == -1) return;
-        Process *n = &state->processes[next];
-        if (n->start_time == -1) n->start_time = state->current_time;
-        state->running_index = next;
-
-        Event *done = malloc(sizeof(Event));
-        if (!done) return;
-        done->time = state->current_time + n->remaining_time;
-        done->type = EVENT_COMPLETION;
-        done->process = n;
-        done->next = NULL;
-
-        if (!*event_queue || done->time < (*event_queue)->time) {
-            done->next = *event_queue;
-            *event_queue = done;
-        } else {
-            Event *cur = *event_queue;
-            while (cur->next && cur->next->time <= done->time) cur = cur->next;
-            done->next = cur->next;
-            cur->next = done;
-        }
-    }
+    try_dispatch(state, event_queue, algorithm);
 }
 
 
@@ -190,17 +143,7 @@ static void handle_completion(SchedulerState *state, Process *process, Event **e
 // Core Simulation Engine: orchestrates the events
 
 void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
-    // Suppress warnings for currently unused parameters 
-    // (void)state;
-    // (void)algorithm;
-
-
-    // for (int i = 0; i < state->num_processes; i++) {
-    //     Process *p = &state->processes[i];
-    //     printf("Process %s: arrival=%d, burst=%d\n", p->pid, p->arrival_time, p->burst_time);
-    // }
-
-    // initialize_events will be in utils.c
+    
     Event *event_queue = initialize_events(state);
 
     while (event_queue != NULL) {
@@ -214,10 +157,9 @@ void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
             case EVENT_COMPLETION:
                 handle_completion(state, current->process, &event_queue, algorithm);
                 break;
-            // ... handle other events [cite: 299]
+            // ... handle other events 
         }
         free(current);
-        // free(state->ready_queue);
     }
     
 

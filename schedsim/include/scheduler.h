@@ -44,15 +44,11 @@ typedef struct {
 } SchedulerState;
 
 // Return 0 on success, -1 on error
-// Non-preemptive first-come, first-served scheduling
+
 int schedule_fcfs(SchedulerState *state);
-// Non-preemptive shortest-job-first scheduling
 int schedule_sjf(SchedulerState *state);
-// Preemptive shortest-time-to-completion-first scheduling
 int schedule_stcf(SchedulerState *state);
-// Round-robin scheduling using a fixed time quantum
 int schedule_rr(SchedulerState *state, int quantum);
-// Multi-level feedback queue scheduling with a provided configuration
 int schedule_mlfq(SchedulerState *state, MLFQConfig *config);
 
 // Identifies which high-level algorithm the simulator should run
