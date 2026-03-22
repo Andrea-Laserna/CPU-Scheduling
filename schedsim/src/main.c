@@ -82,13 +82,13 @@ static int process_index_from_ptr(SchedulerState *state, Process *p) {
 }
 
 
-static void handle_arrival(SchedulerState *state, Process *process, Event **event_queue) { // doesn't handle preemption yet
+static void handle_arrival(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) { // doesn't handle preemption yet
     int idx = process_index_from_ptr(state, process);
     enqueue_ready(state, idx); // TODO: Check  return value in case queue is full.
 
     // If CPU idle, dispatch immediately
     if (state->running_index == -1) {
-        int next = schedule_fcfs(state);
+        int next = select_next_process(state, algorithm);
         if (next != -1) {
             Process *p = &state->processes[next];
             if (p->start_time == -1) p->start_time = state->current_time;
@@ -122,7 +122,7 @@ static void handle_arrival(SchedulerState *state, Process *process, Event **even
     }
 }
 
-static void handle_completion(SchedulerState *state, Process *process, Event **event_queue) {
+static void handle_completion(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) {
     int idx = process_index_from_ptr(state, process);
     Process *p = &state->processes[idx];
 
@@ -131,8 +131,8 @@ static void handle_completion(SchedulerState *state, Process *process, Event **e
     state->completed_count++;
     state->running_index = -1;
 
-    // Dispatch next FCFS if any
-    int next = schedule_fcfs(state);
+    // Dispatch next process based on the selected algorithm
+    int next = select_next_process(state, algorithm);
     if (next != -1) {
         Process *n = &state->processes[next];
         if (n->start_time == -1) n->start_time = state->current_time;
@@ -181,10 +181,10 @@ void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
 
         switch (current->type) {
             case EVENT_ARRIVAL:
-                handle_arrival(state, current->process, &event_queue);
+                handle_arrival(state, current->process, &event_queue, algorithm);
                 break;
             case EVENT_COMPLETION:
-                handle_completion(state, current->process, &event_queue);
+                handle_completion(state, current->process, &event_queue, algorithm);
                 break;
             // ... handle other events [cite: 299]
         }

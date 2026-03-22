@@ -73,3 +73,46 @@ int dequeue_ready(SchedulerState *state) {
     state->ready_count--;
     return idx;
 }
+
+int select_next_process(SchedulerState *state, SchedulingAlgorithm algorithm) {
+    switch (algorithm) {
+        case SCHED_FCFS:
+            return schedule_fcfs(state);
+        case SCHED_SJF:
+            return schedule_sjf(state);
+        // case SCHED_STCF:
+        //     return schedule_stcf(state);
+        // case SCHED_RR:
+        //     // For RR, we would also need to pass the quantum, but let's assume it's a fixed value for now
+        //     return schedule_rr(state, 4); // Example quantum of 4
+        // case SCHED_MLFQ:
+        //     // For MLFQ, we would need to pass the configuration, but let's assume it's predefined for now
+        //     return schedule_mlfq(state, NULL); // Placeholder for MLFQ
+        default:
+            return -1; // Invalid algorithm
+    }
+}
+
+int remove_ready_at_logical(SchedulerState *state, int logical_pos) {
+    if (!state) return -1;
+    if (state->ready_count <= 0) return -1;
+    if (logical_pos < 0 || logical_pos >= state->ready_count) return -1;
+
+    int cap = state->ready_capacity;
+    int head = state->ready_head;
+
+    int remove_phys = (head + logical_pos) % cap;
+    int selected_idx = state->ready_queue[remove_phys];
+
+    // Shift left from logical_pos+1 ... ready_count-1
+    for (int i = logical_pos; i < state->ready_count - 1; i++) {
+        int from_phys = (head + i + 1) % cap;
+        int to_phys   = (head + i) % cap;
+        state->ready_queue[to_phys] = state->ready_queue[from_phys];
+    }
+
+    state->ready_count--;
+    state->ready_tail = (state->ready_head + state->ready_count) % cap;
+
+    return selected_idx;
+}

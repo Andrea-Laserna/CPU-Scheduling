@@ -33,7 +33,7 @@ typedef struct {
 	/* Recall: CMSC 141 */
 
 
-	int *ready_queue;      // stores process indices
+	int *ready_queue;      // stores process indices //TODO: change name to ready_indices_array para mas clear
     int ready_head;			// we'll implement ready queue as circular array for O(1) enqueue/dequeue
     int ready_tail;
     int ready_count;
