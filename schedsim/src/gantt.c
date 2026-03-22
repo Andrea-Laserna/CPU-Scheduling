@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "gantt.h"
-
+/*
+TODO: handle preemptive cases
+*/
 static void sort_by_start_time(SchedulerState *state, int *order) {
     for (int i = 0; i < state->num_processes; i++) order[i] = i;
 
