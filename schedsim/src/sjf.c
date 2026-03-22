@@ -4,9 +4,6 @@ int schedule_sjf(SchedulerState *state) {
     // Stateless policy: pick next from ready queue
     if (state->ready_count == 0) return -1;
 
-    // WHERE in the line we found the shortest
-    int best_logical_pos = 0;
-
     int shortest_idx = state->ready_queue[state->ready_head]; // this is the actual index of the process in the processes array
     Process *shortest = &state->processes[shortest_idx];
 
@@ -19,10 +16,9 @@ int schedule_sjf(SchedulerState *state) {
             shortest_idx = current_idx;
             shortest = current;
 
-            best_logical_pos = i;
         }
     }
 
 
-    return remove_ready_at_logical(state, best_logical_pos);
+    return shortest_idx;
 }

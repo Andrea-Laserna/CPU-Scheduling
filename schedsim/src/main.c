@@ -81,6 +81,31 @@ static int process_index_from_ptr(SchedulerState *state, Process *p) {
     return (int)(p - state->processes);
 }
 
+int remove_ready_by_process_idx(SchedulerState *state, int process_idx) {
+    if (!state || state->ready_count <= 0) return -1;
+
+    int found_pos = -1;
+    for (int i = 0; i < state->ready_count; i++) {
+        int phys = (state->ready_head + i) % state->ready_capacity;
+        if (state->ready_queue[phys] == process_idx) {
+            found_pos = i;
+            break;
+        }
+    }
+    if (found_pos == -1) return -1;
+
+    int cap = state->ready_capacity;
+    int head = state->ready_head;
+    for (int i = found_pos; i < state->ready_count - 1; i++) {
+        int from_phys = (head + i + 1) % cap;
+        int to_phys = (head + i) % cap;
+        state->ready_queue[to_phys] = state->ready_queue[from_phys];
+    }
+
+    state->ready_count--;
+    state->ready_tail = (state->ready_head + state->ready_count) % cap;
+    return process_idx;
+}
 
 static void handle_arrival(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) { // doesn't handle preemption yet
     int idx = process_index_from_ptr(state, process);
@@ -90,6 +115,7 @@ static void handle_arrival(SchedulerState *state, Process *process, Event **even
     if (state->running_index == -1) {
         int next = select_next_process(state, algorithm);
         if (next != -1) {
+            if (remove_ready_by_process_idx(state, next) == -1) return;
             Process *p = &state->processes[next];
             if (p->start_time == -1) p->start_time = state->current_time;
             state->running_index = next;
@@ -134,6 +160,8 @@ static void handle_completion(SchedulerState *state, Process *process, Event **e
     // Dispatch next process based on the selected algorithm
     int next = select_next_process(state, algorithm);
     if (next != -1) {
+        // Remove the selected process from ready queue before running it.
+        if (remove_ready_by_process_idx(state, next) == -1) return;
         Process *n = &state->processes[next];
         if (n->start_time == -1) n->start_time = state->current_time;
         state->running_index = next;
