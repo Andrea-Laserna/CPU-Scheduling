@@ -70,8 +70,8 @@ int select_next_process(SchedulerState *state, SchedulingAlgorithm algorithm) {
             return schedule_fcfs(state);
         case SCHED_SJF:
             return schedule_sjf(state);
-        // case SCHED_STCF:
-        //     return schedule_stcf(state);
+        case SCHED_STCF:
+            return schedule_stcf(state);
         // case SCHED_RR:
         //     // For RR, we would also need to pass the quantum, but let's assume it's a fixed value for now
         //     return schedule_rr(state, 4); // Example quantum of 4

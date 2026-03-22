@@ -61,6 +61,7 @@ int main(int argc, char *argv[]) {
     state.ready_count = 0;
     state.running_index = -1;
     state.completed_count = 0;
+    state.last_dispatch_time = 0;
 
     printf("Loaded %d processes from %s\n", state.num_processes, input_file);
     printf("Starting Simulation...\n");
@@ -114,30 +115,74 @@ static int push_completion_event(Event **event_queue, int when, Process *p) {
     return 0;
 }
 
-// Engine of the simulator that changes state of CPU
-static void try_dispatch(SchedulerState *state, Event **event_queue, SchedulingAlgorithm algorithm) {
-    // If CPU is busy, dispatch immediately
-    if (state->running_index != -1) return; 
+static int try_dispatch(SchedulerState *state, Event **event_queue, SchedulingAlgorithm algorithm) { // return 1 if dispatched, 0 if not
+    // If CPU idle, dispatch immediately
+    if (state->running_index != -1) return 0; // CPU busy, can't dispatch 
 
     // Ask algorithm which process in ready queue should go next
     int next = select_next_process(state, algorithm);
     // If ready queue is empty (next = -1), CPU stays idle
-    if (next == -1) return; // No process ready to run
+    if (next == -1) return 0; // nothing ready to dispatch
     
     // Process has been chosen to run -> remove from ready queue
-    if (remove_ready_by_process_idx(state, next) == -1) return;
+    if (remove_ready_by_process_idx(state, next) == -1) return -1;
     
     Process *p = &state->processes[next];
     // If first time in CPU, record current time to use later for RT
     if (p->start_time == -1) p->start_time = state->current_time;
     // Update CPU is busy with process x
     state->running_index = next;
+    state->last_dispatch_time = state->current_time;
 
     // Schedule completion event
     int completion_time = state->current_time + p->remaining_time;
     (void) push_completion_event(event_queue, completion_time, p); //TODO: Check return value in case of malloc failure.
 
+    return 1;
+}
+
+static int remove_completion_event_for_process(Event **event_queue, Process *proc) {
+    Event *prev = NULL;
+    Event *cur = *event_queue;
+
+    while (cur) {
+        if (cur->type == EVENT_COMPLETION && cur->process == proc) {
+            if (prev) prev->next = cur->next;
+            else *event_queue = cur->next;
+            free(cur);
+            return 1;
+        }
+        prev = cur;
+        cur = cur->next;
+    }
+    return 0;
+}
+
+static int maybe_preempt_stcf(SchedulerState *state, Event **event_queue) {
+    if (state->running_index == -1) return 0; // nothing to preempt
+
+    Process *running = &state->processes[state->running_index];
+    int elapsed_time = state->current_time - state->last_dispatch_time;
     
+    running->remaining_time -= elapsed_time;                                        // Update remaining time of currently running process
+    state->last_dispatch_time = state->current_time;
+
+    /* at this moment the policy will decide what process to run */
+    int best_ready_idx = select_next_process(state, SCHED_STCF);  //by best, we mean the process with the shortest remaining time in the ready queue
+    if (best_ready_idx == -1) return 0;
+
+    Process *best_ready = &state->processes[best_ready_idx];
+    if (best_ready->remaining_time >= running->remaining_time) { //note: check printed result if tied remaining time is handled correctly (should not preempt if tie and running process arrived earlier)
+        return 0; // keep running process
+    }
+
+    // Preempt current running process.
+    if (enqueue_ready(state, state->running_index) == -1) return -1;                                 // Put the preempted process back in the ready queue
+    remove_completion_event_for_process(event_queue, running);
+    state->running_index = -1;                                                  // Mark CPU as idle  
+
+    return 1; // Indicate that a preemption occurred
+
 }
 
 static void handle_arrival(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) { // doesn't handle preemption yet
@@ -147,6 +192,20 @@ static void handle_arrival(SchedulerState *state, Process *process, Event **even
     enqueue_ready(state, idx); // TODO: Check  return value in case queue is full.
     // Check if CPU is idle. If free, pull new process from ready queue and start
     try_dispatch(state, event_queue, algorithm);
+    if (enqueue_ready(state, idx) == -1) {
+        fprintf(stderr, "Error: ready queue overflow on arrival of %s\n", process->pid);
+        return;
+    }
+
+    if (algorithm == SCHED_STCF) { //not sure if this is the best way to structure this, but we need to check for preemption on every arrival for STCF
+        if (maybe_preempt_stcf(state, event_queue) == -1) {
+            fprintf(stderr, "Error: STCF preemption failed\n");
+            return;
+        }
+    }
+
+    int dispatched = try_dispatch(state, event_queue, algorithm);
+    
 }
 
 static void handle_completion(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) {
