@@ -188,10 +188,7 @@ static int maybe_preempt_stcf(SchedulerState *state, Event **event_queue) {
 static void handle_arrival(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) { // doesn't handle preemption yet
     // Convert ptr to memory address into index
     int idx = process_index_from_ptr(state, process);
-    // Process moved from "waiting to arrive" list into ready queue
-    enqueue_ready(state, idx); // TODO: Check  return value in case queue is full.
-    // Check if CPU is idle. If free, pull new process from ready queue and start
-    try_dispatch(state, event_queue, algorithm);
+    
     if (enqueue_ready(state, idx) == -1) {
         fprintf(stderr, "Error: ready queue overflow on arrival of %s\n", process->pid);
         return;
