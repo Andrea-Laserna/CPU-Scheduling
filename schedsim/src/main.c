@@ -53,7 +53,8 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    state.ready_capacity = state.num_processes;
+    // Added buffer of one slot for STCF swapping logic
+    state.ready_capacity = state.num_processes + 1;
     // Allocate memory for ready queue (indices of waiting processes)
     state.ready_queue = malloc(sizeof(int) * state.ready_capacity);
     state.ready_head = 0;
@@ -136,7 +137,9 @@ static int try_dispatch(SchedulerState *state, Event **event_queue, SchedulingAl
 
     // Schedule completion event
     int completion_time = state->current_time + p->remaining_time;
-    (void) push_completion_event(event_queue, completion_time, p); //TODO: Check return value in case of malloc failure.
+    if ( push_completion_event(event_queue, completion_time, p) == -1 ) {
+        fprintf(stderr, "Error: could not schedule completion event (out of memory)");
+    }; //TODO (Done): Check return value in case of malloc failure.
 
     return 1;
 }

@@ -1,12 +1,13 @@
 #include <stdlib.h>
 #include "scheduler.h"
 #include "utils.h"
+#include <stdio.h>
 // Event - node in the queue that records the process
 // State - processes, num_processes, current_time
 
 Event* initialize_events(SchedulerState *state) {
     /*
-    issue to fix: check malloc return value first incase of failure
+    issue fixed: check malloc return value first incase of failure
     */
 
     Event *head = NULL;
@@ -14,6 +15,18 @@ Event* initialize_events(SchedulerState *state) {
     // Create one ARRIVAL event for each process
     for (int i = 0; i < state->num_processes; i++) {
         Event *new_event = malloc(sizeof(Event));
+
+        // Check for failure
+        if (new_event == NULL) {
+            fprintf(stderr, "Error: malloc failed");
+            // Free every node in the current head list
+            while (head != NULL) {
+                Event *temp = head;
+                head = head->next;
+                free(temp);
+            }
+            return NULL;
+        }
         new_event->time = state->processes[i].arrival_time;
         new_event->type = EVENT_ARRIVAL;
         new_event->process = &state->processes[i];
@@ -74,7 +87,6 @@ int select_next_process(SchedulerState *state, SchedulingAlgorithm algorithm) {
             return schedule_stcf(state);
         // case SCHED_RR:
         //     // For RR, we would also need to pass the quantum, but let's assume it's a fixed value for now
-        //     return schedule_rr(state, 4); // Example quantum of 4
         // case SCHED_MLFQ:
         //     // For MLFQ, we would need to pass the configuration, but let's assume it's predefined for now
         //     return schedule_mlfq(state, NULL); // Placeholder for MLFQ
