@@ -20,5 +20,15 @@
 
 
 # Execute
-1. make
-2. ./schedsim --algorithm=FCFS --input=tests/workload1.txt
+1.
+```
+make
+```
+2.
+```
+./schedsim --algorithm=FCFS --input=tests/workload1.txt
+```
+
+```
+./schedsim --algorithm=RR --quantum=30 --input=tests/workload1.txt
+```

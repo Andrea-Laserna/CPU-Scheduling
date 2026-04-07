@@ -22,7 +22,18 @@ typedef struct {
 } MLFQScheduler;
 
 // Forward declaration so we can reference MLFQConfig before its full definition
-typedef struct MLFQConfig MLFQConfig;
+typedef struct MLFQConfig {
+	int num_levels;
+	int *quantums;
+	int *allotments;
+	int boost_period;
+} MLFQConfig;
+
+typedef struct {
+    char pid[16];
+    int start_time;
+    int end_time;
+} ExecutionSlice;
 
 // Shared simulation state used by every algorithm
 typedef struct {
@@ -40,8 +51,13 @@ typedef struct {
 
     int running_index;     // -1 if CPU idle
     int completed_count;
+	int quantum;
 
 	int last_dispatch_time;
+	
+	ExecutionSlice *history;
+    int history_count;
+    int history_capacity;
 } SchedulerState;
 
 // Return 0 on success, -1 on error
@@ -49,7 +65,7 @@ typedef struct {
 int schedule_fcfs(SchedulerState *state);
 int schedule_sjf(SchedulerState *state);
 int schedule_stcf(SchedulerState *state);
-int schedule_rr(SchedulerState *state, int quantum);
+int schedule_rr(SchedulerState *state);
 int schedule_mlfq(SchedulerState *state, MLFQConfig *config);
 
 // Identifies which high-level algorithm the simulator should run

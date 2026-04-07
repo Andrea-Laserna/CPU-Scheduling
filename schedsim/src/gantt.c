@@ -1,53 +1,49 @@
-// src/gantt.c
 #include <stdio.h>
 #include <stdlib.h>
 #include "gantt.h"
+
 /*
-TODO: handle preemptive cases
-*/
-static void sort_by_start_time(SchedulerState *state, int *order) {
-    for (int i = 0; i < state->num_processes; i++) order[i] = i;
+ * NOTE: This is a simplified Gantt chart (Fixing Finding #15).
+ * For non-preemptive algorithms (FCFS, SJF), it is 100% accurate.
+ * For preemptive algorithms (STCF, RR), it currently shows the process 
+ * from its first start to its final completion. 
+ * * TODO: To perfectly handle preemption, the SchedulerState would need 
+ * an array of "ExecutionSlices" to track every time a process was 
+ * swapped in and out.
+ */
 
-    for (int i = 0; i < state->num_processes - 1; i++) {
-        for (int j = i + 1; j < state->num_processes; j++) {
-            Process *a = &state->processes[order[i]];
-            Process *b = &state->processes[order[j]];
-            if (a->start_time > b->start_time) {
-                int tmp = order[i];
-                order[i] = order[j];
-                order[j] = tmp;
-            }
-        }
-    }
-}
-
+/**
+ * Renders a visual timeline of process execution to the console.
+ */
 void print_gantt_chart(SchedulerState *state) {
-    if (!state || state->num_processes <= 0) return;
-
-    int *order = malloc(sizeof(int) * state->num_processes);
-    if (!order) return;
-
-    sort_by_start_time(state, order);
-
-    printf("\n=== Gantt Chart ===\n");
-    for (int i = 0; i < state->num_processes; i++) {
-        Process *p = &state->processes[order[i]];
-        int dashes = p->burst_time / 16;
-        if (dashes < 1) dashes = 1;
-
-        printf("[%s", p->pid);
-        for (int k = 0; k < dashes; k++) printf("-");
-        printf("]");
+    // Safety guard: ensure there is history to print
+    if (!state || state->history_count <= 0) {
+        printf("\nGantt Chart: No execution history to display.\n");
+        return;
     }
-    printf("\n");
 
-    printf("Time: ");
-    printf("%d", state->processes[order[0]].start_time);
-    for (int i = 0; i < state->num_processes; i++) {
-        Process *p = &state->processes[order[i]];
-        printf("%10d", p->finish_time);
+    printf("\n=== Gantt Chart (Execution Timeline) ===\n");
+    printf("(Scale: each '-' is roughly 4ms of CPU time)\n\n");
+
+    // Iterate through the recorded history slices chronologically
+    for (int i = 0; i < state->history_count; i++) {
+        ExecutionSlice *s = &state->history[i];
+        
+        // Print the PID and the specific time this slice started
+        printf("[%3d] %-5s: ", s->start_time, s->pid);
+
+        // Calculate dashes based only on THIS slice's duration
+        int duration = s->end_time - s->start_time;
+        int dashes = duration / 4;
+        if (dashes < 1) dashes = 1; 
+
+        for (int d = 0; d < dashes; d++) {
+            printf("-");
+        }
+
+        // Print the time this specific slice ended
+        printf(" [%3d]\n", s->end_time);
     }
+    
     printf("\n");
-
-    free(order);
 }

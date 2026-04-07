@@ -6,256 +6,225 @@
 #include "gantt.h"
 #include "utils.h"
 
-// Entry point
-int main(int argc, char *argv[]) {
+/**
+ * Helper to clear any leftover events in the linked list.
+ */
+void clear_event_queue(Event **head) {
+    while (*head != NULL) {
+        Event *temp = *head;
+        *head = (*head)->next;
+        free(temp);
+    }
+}
 
-    // Holds clock, list of processes, and ready queue
+/**
+ * Maps a Process pointer to its index in the processes array.
+ */
+static int process_index_from_ptr(SchedulerState *state, Process *process) {
+    if (!state || !state->processes || !process) return -1;
+    for (int i = 0; i < state->num_processes; i++) {
+        if (&state->processes[i] == process) return i;
+    }
+    return -1;
+}
+
+/**
+ * Handles process completion.
+ */
+static void handle_completion(SchedulerState *state, Process *process) {
+    if (!state || !process || state->running_index == -1) return;
+
+    int idx = process_index_from_ptr(state, process);
+    if (state->running_index != idx) return; // Guard against stale events
+
+    // Record the final slice for the Gantt chart
+    log_execution(state, process->pid, state->last_dispatch_time, state->current_time);
+
+    process->remaining_time = 0;
+    process->finish_time = state->current_time;
+    state->running_index = -1;
+    state->completed_count++;
+}
+
+/**
+ * Handles a new process arrival.
+ */
+static int handle_arrival(SchedulerState *state, Process *process) {
+    int idx = process_index_from_ptr(state, process);
+    if (idx == -1) return -1;
+    
+    if (enqueue_ready(state, idx) == -1) {
+        fprintf(stderr, "Fatal Error: Ready queue overflow.\n");
+        return -1; 
+    }
+    return 0;
+}
+
+/**
+ * STCF Preemption logic.
+ */
+static void maybe_preempt_stcf(SchedulerState *state) {
+    if (!state || state->running_index == -1) return;
+
+    int candidate_idx = schedule_stcf(state);
+    if (candidate_idx == -1) return;
+
+    Process *running = &state->processes[state->running_index];
+    Process *candidate = &state->processes[candidate_idx];
+
+    if (candidate->remaining_time < running->remaining_time) {
+        int elapsed = state->current_time - state->last_dispatch_time;
+        running->remaining_time -= (elapsed > 0) ? elapsed : 0;
+        
+        // Record the partial slice
+        log_execution(state, running->pid, state->last_dispatch_time, state->current_time);
+        
+        enqueue_ready(state, state->running_index);
+        state->running_index = -1;
+    }
+}
+
+/**
+ * Round Robin Preemption logic.
+ * Fixed: Re-queues the process BEFORE new arrivals are handled in the main loop.
+ */
+static void maybe_preempt_rr(SchedulerState *state, Event **event_queue) {
+    if (!state || state->running_index == -1) return;
+
+    int elapsed = state->current_time - state->last_dispatch_time;
+
+    // Check if the process has reached or exceeded its quantum
+    if (elapsed >= state->quantum) {
+        Process *running = &state->processes[state->running_index];
+        
+        // Remove the future completion event since we are preempting now
+        cancel_event(event_queue, running, EVENT_COMPLETION);
+
+        // Record the execution slice for the Gantt Chart
+        log_execution(state, running->pid, state->last_dispatch_time, state->current_time);
+
+        running->remaining_time -= elapsed;
+        if (running->remaining_time < 0) running->remaining_time = 0;
+
+        if (running->remaining_time > 0) {
+            if (event_queue && *event_queue && (*event_queue)->time == state->current_time && (*event_queue)->type == EVENT_ARRIVAL) {
+                enqueue_ready_front(state, state->running_index);
+            } else {
+                enqueue_ready(state, state->running_index);
+            }
+        } else {
+            running->finish_time = state->current_time;
+            state->completed_count++;
+        }
+
+        state->running_index = -1;
+    }
+}
+
+/**
+ * Core Simulation Engine.
+ */
+void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
+    Event *event_queue = initialize_events(state);
+    
+    while (event_queue != NULL) {
+        Event *current = pop_event(&event_queue);
+        state->current_time = current->time;
+
+        int status = 0;
+        switch (current->type) {
+            case EVENT_ARRIVAL:
+                status = handle_arrival(state, current->process);
+                break;
+            case EVENT_COMPLETION:
+                handle_completion(state, current->process);
+                break;
+            case EVENT_QUANTUM_EXPIRE:
+                maybe_preempt_rr(state, &event_queue);
+                break;
+            default: break;
+        }
+
+        if (status == -1) {
+            free(current);
+            break; 
+        }
+
+        if (algorithm == SCHED_STCF) {
+            maybe_preempt_stcf(state);
+        }
+
+        // Try to put a process on the CPU if it's idle
+        try_dispatch(state, &event_queue, algorithm);
+        
+        free(current);
+    }
+
+    calculate_metrics(state);
+    print_gantt_chart(state);
+    print_metrics(state);
+    clear_event_queue(&event_queue);
+}
+
+int main(int argc, char *argv[]) {
     SchedulerState state;
-    // Clean starting state (no process yet)
     state.current_time = 0;
     state.num_processes = 0;
     state.processes = NULL;
+    state.ready_queue = NULL; 
+    state.quantum = 4; 
+    
+    // Initialize History for Gantt Chart
+    state.history_count = 0;
+    state.history_capacity = 100;
+    state.history = malloc(sizeof(ExecutionSlice) * state.history_capacity);
 
-    SchedulingAlgorithm selected_algo = SCHED_FCFS; // Default
+    SchedulingAlgorithm selected_algo = SCHED_FCFS; 
     char *input_file = NULL;
 
-    // Parse command line args: look for algorithm and input workload file
     for (int i = 1; i < argc; i++) {
-        
         if (strncmp(argv[i], "--algorithm=", 12) == 0) {
-            // Pointer to the text after "--algorithm="
             char *algo_name = argv[i] + 12;
-            
             if (strcmp(algo_name, "FCFS") == 0) selected_algo = SCHED_FCFS;
             else if (strcmp(algo_name, "SJF") == 0) selected_algo = SCHED_SJF;
             else if (strcmp(algo_name, "STCF") == 0) selected_algo = SCHED_STCF;
             else if (strcmp(algo_name, "RR") == 0) selected_algo = SCHED_RR;
             else if (strcmp(algo_name, "MLFQ") == 0) selected_algo = SCHED_MLFQ;
-        
         } else if (strncmp(argv[i], "--input=", 8) == 0) {
             input_file = argv[i] + 8;
+        } else if (strncmp(argv[i], "--quantum=", 10) == 0) {
+            state.quantum = atoi(argv[i] + 10);
         }
     }
 
-    // Load process workload
-    if (input_file) {
-        // Read input file and turn it into array of process structs
-        state.processes = load_processes(input_file, &state.num_processes);
-        
-        if (!state.processes) {
-            fprintf(stderr, "Error: Failed to load processes from %s\n", input_file);
-            return -1;
-        }
+    if (!input_file) return -1;
 
-    } else {
-        // Input file is required to run a simulation
-        fprintf(stderr, "Error: No input file specified.\n");
-        return -1;
-    }
+    state.processes = load_processes(input_file, &state.num_processes);
+    if (!state.processes) return -1;
 
-    // Added buffer of one slot for STCF swapping logic
     state.ready_capacity = state.num_processes + 1;
-    // Allocate memory for ready queue (indices of waiting processes)
     state.ready_queue = malloc(sizeof(int) * state.ready_capacity);
-    state.ready_head = 0;
-    state.ready_tail = 0;
-    state.ready_count = 0;
+    
+    state.ready_head = state.ready_tail = state.ready_count = 0;
     state.running_index = -1;
     state.completed_count = 0;
     state.last_dispatch_time = 0;
 
-    printf("Loaded %d processes from %s\n", state.num_processes, input_file);
-    printf("Starting Simulation...\n");
-    
-    // Run the Discrete-Event Simulator
-    simulate_scheduler(&state, selected_algo);
+    if (selected_algo == SCHED_MLFQ) {
+        if (schedule_mlfq(&state, NULL) != 0) {
+            free(state.processes);
+            free(state.ready_queue);
+            free(state.history);
+            return -1;
+        }
+    } else {
+        simulate_scheduler(&state, selected_algo);
+    }
 
     // Cleanup
     free(state.processes);
     free(state.ready_queue);
+    free(state.history);
     
     return 0;
-}
-
-
-
-
-static int process_index_from_ptr(SchedulerState *state, Process *p) {
-    return (int)(p - state->processes);
-}
-
-static int push_completion_event(Event **event_queue, int when, Process *p) {
-    Event *done = malloc(sizeof(Event));
-    if (!done) return -1;
-
-    // Initialize time to mark as completion
-    done->time = when;
-    done->type = EVENT_COMPLETION;
-    // Attach pointer to finishing process
-    done->process = p;
-    done->next = NULL;
-
-    // Case 1: Insert at head
-    // If list is empty or new event happens soonest -> event = first event
-    if (!*event_queue || done->time < (*event_queue)->time) {
-        done->next = *event_queue;
-        *event_queue = done;
-    // Case 2: Find the gap
-    // If there are events already scheduled,
-    // keep moving the list until we find an event that is scheduled after our new event (done)
-    } else {
-        // Start at beginning of list
-        Event *cur = *event_queue;
-        // Search for correct spot to squeeze new event (done)
-        // Look at next appointment time if their time is earlier or equal to new event time, keep moving
-        while (cur->next && cur->next->time <= done->time) cur = cur->next;
-        // New event (done) is now in between the cur and cur_next
-        done->next = cur->next;
-        cur->next = done;
-    }
-    return 0;
-}
-
-static int try_dispatch(SchedulerState *state, Event **event_queue, SchedulingAlgorithm algorithm) { // return 1 if dispatched, 0 if not
-    // If CPU idle, dispatch immediately
-    if (state->running_index != -1) return 0; // CPU busy, can't dispatch 
-
-    // Ask algorithm which process in ready queue should go next
-    int next = select_next_process(state, algorithm);
-    // If ready queue is empty (next = -1), CPU stays idle
-    if (next == -1) return 0; // nothing ready to dispatch
-    
-    // Process has been chosen to run -> remove from ready queue
-    if (remove_ready_by_process_idx(state, next) == -1) return -1;
-    
-    Process *p = &state->processes[next];
-    // If first time in CPU, record current time to use later for RT
-    if (p->start_time == -1) p->start_time = state->current_time;
-    // Update CPU is busy with process x
-    state->running_index = next;
-    state->last_dispatch_time = state->current_time;
-
-    // Schedule completion event
-    int completion_time = state->current_time + p->remaining_time;
-    if ( push_completion_event(event_queue, completion_time, p) == -1 ) {
-        fprintf(stderr, "Error: could not schedule completion event (out of memory)");
-    }; //TODO (Done): Check return value in case of malloc failure.
-
-    return 1;
-}
-
-static int remove_completion_event_for_process(Event **event_queue, Process *proc) {
-    Event *prev = NULL;
-    Event *cur = *event_queue;
-
-    while (cur) {
-        if (cur->type == EVENT_COMPLETION && cur->process == proc) {
-            if (prev) prev->next = cur->next;
-            else *event_queue = cur->next;
-            free(cur);
-            return 1;
-        }
-        prev = cur;
-        cur = cur->next;
-    }
-    return 0;
-}
-
-static int maybe_preempt_stcf(SchedulerState *state, Event **event_queue) {
-    if (state->running_index == -1) return 0; // nothing to preempt
-
-    Process *running = &state->processes[state->running_index];
-    int elapsed_time = state->current_time - state->last_dispatch_time;
-    
-    running->remaining_time -= elapsed_time;                                        // Update remaining time of currently running process
-    state->last_dispatch_time = state->current_time;
-
-    /* at this moment the policy will decide what process to run */
-    int best_ready_idx = select_next_process(state, SCHED_STCF);  //by best, we mean the process with the shortest remaining time in the ready queue
-    if (best_ready_idx == -1) return 0;
-
-    Process *best_ready = &state->processes[best_ready_idx];
-    if (best_ready->remaining_time >= running->remaining_time) { //note: check printed result if tied remaining time is handled correctly (should not preempt if tie and running process arrived earlier)
-        return 0; // keep running process
-    }
-
-    // Preempt current running process.
-    if (enqueue_ready(state, state->running_index) == -1) return -1;                                 // Put the preempted process back in the ready queue
-    remove_completion_event_for_process(event_queue, running);
-    state->running_index = -1;                                                  // Mark CPU as idle  
-
-    return 1; // Indicate that a preemption occurred
-
-}
-
-static void handle_arrival(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) { // doesn't handle preemption yet
-    // Convert ptr to memory address into index
-    int idx = process_index_from_ptr(state, process);
-    
-    if (enqueue_ready(state, idx) == -1) {
-        fprintf(stderr, "Error: ready queue overflow on arrival of %s\n", process->pid);
-        return;
-    }
-
-    if (algorithm == SCHED_STCF) { //not sure if this is the best way to structure this, but we need to check for preemption on every arrival for STCF
-        if (maybe_preempt_stcf(state, event_queue) == -1) {
-            fprintf(stderr, "Error: STCF preemption failed\n");
-            return;
-        }
-    }
-
-    int dispatched = try_dispatch(state, event_queue, algorithm);
-    
-}
-
-static void handle_completion(SchedulerState *state, Process *process, Event **event_queue, SchedulingAlgorithm algorithm) {
-    int idx = process_index_from_ptr(state, process);
-    Process *p = &state->processes[idx];
-
-    p->remaining_time = 0;
-    // Record exact moment finished to calculate TT (finish - arrival) later
-    p->finish_time = state->current_time;
-    // To know when every process in workload is done
-    state->completed_count++;
-    // Free CPU (idle) 
-    state->running_index = -1;
-
-    // Check  ready queue to see who waited the longest/shortest and give them the CPU next
-    try_dispatch(state, event_queue, algorithm);
-}
-
-
-
-// Core Simulation Engine: orchestrates the events
-
-void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
-    // Create initial arrival events for each process and put into timeline
-    Event *event_queue = initialize_events(state);
-    // Run simulator while events in queue
-    while (event_queue != NULL) {
-        // Get soonest event
-        Event *current = pop_event(&event_queue);
-        // Jump clock directly to the time of next important event (popped event)
-        state->current_time = current->time;
-
-        switch (current->type) {
-            // New process entered the system -> add to ready queue
-            case EVENT_ARRIVAL:
-                // Calculate when it will finish and add new EVENT_COMPLETION to queue
-                handle_arrival(state, current->process, &event_queue, algorithm);
-                break;
-            // Process finished work -> CPU free
-            case EVENT_COMPLETION:
-                handle_completion(state, current->process, &event_queue, algorithm);
-                break;
-            // ... handle other events 
-        }
-        free(current);
-    }
-    
-
-    // calculate_metrics and print_results will be in metrics.c and gantt.c
-    calculate_metrics(state);
-    print_gantt_chart(state);
-    print_metrics(state);
 }
