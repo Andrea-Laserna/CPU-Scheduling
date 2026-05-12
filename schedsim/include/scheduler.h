@@ -58,6 +58,12 @@ typedef struct {
 	ExecutionSlice *history;
     int history_count;
     int history_capacity;
+
+	// MLFQ-specific fields
+	int num_levels;
+	int boost_period;
+	int *quantums;
+	int *allotments;
 } SchedulerState;
 
 // Return 0 on success, -1 on error

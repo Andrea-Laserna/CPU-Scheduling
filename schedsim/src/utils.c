@@ -163,6 +163,8 @@ int select_next_process(SchedulerState *state, SchedulingAlgorithm algorithm) {
             return schedule_stcf(state);
         case SCHED_RR:
             return schedule_rr(state);
+        case SCHED_MLFQ:
+            return schedule_mlfq(state, NULL);
         default:
             return -1; 
     }
@@ -201,23 +203,24 @@ int remove_ready_by_process_idx(SchedulerState *state, int process_idx) {
 }
 
 void log_execution(SchedulerState *state, char *pid, int start, int end) {
-    if (!state || !pid || !state->history || state->history_capacity <= 0) return;
+    if (start >= end) return; // Don't log zero-length slices
 
-    if (state->history_count >= state->history_capacity) {
-        int new_capacity = state->history_capacity * 2;
-        ExecutionSlice *new_history = realloc(state->history, sizeof(ExecutionSlice) * new_capacity);
-        if (!new_history) return;
-        state->history = new_history;
-        state->history_capacity = new_capacity;
+    // Check if we need to allocate or resize the history array
+    if (state->history == NULL) {
+        state->history_capacity = 100; // Start with 100 slices
+        state->history = malloc(sizeof(ExecutionSlice) * state->history_capacity);
+    } else if (state->history_count >= state->history_capacity) {
+        state->history_capacity *= 2;
+        state->history = realloc(state->history, sizeof(ExecutionSlice) * state->history_capacity);
     }
 
+    // Log the data
     ExecutionSlice *slice = &state->history[state->history_count++];
-    strncpy(slice->pid, pid, 15);
-    slice->pid[15] = '\0';
+    strncpy(slice->pid, pid, sizeof(slice->pid) - 1);
+    slice->pid[sizeof(slice->pid) - 1] = '\0';
     slice->start_time = start;
     slice->end_time = end;
 }
-
 /**
  * Attempts to move a process from the ready queue to the CPU.
  * Handle Completion or Quantum
@@ -241,18 +244,32 @@ int try_dispatch(SchedulerState *state, Event **event_queue, SchedulingAlgorithm
     Event *next_event = malloc(sizeof(Event));
     if (!next_event) return -1;
 
-    // RR Logic: Schedule quantum expire if burst is longer than quantum
-    if (algo == SCHED_RR && p->remaining_time > state->quantum) {
-        next_event->time = state->current_time + state->quantum;
+    // --- UPDATED LOGIC HERE ---
+    
+    // 1. Determine the effective quantum for this process
+    int current_quantum = -1;
+    if (algo == SCHED_RR) {
+        current_quantum = state->quantum;
+    } else if (algo == SCHED_MLFQ) {
+        // Use the quantum for this process's priority level
+        current_quantum = state->quantums[p->priority];
+    }
+
+    // 2. Decide if it expires or completes
+    if (current_quantum != -1 && p->remaining_time > current_quantum) {
+        next_event->time = state->current_time + current_quantum;
         next_event->type = EVENT_QUANTUM_EXPIRE;
     } else {
         next_event->time = state->current_time + p->remaining_time;
         next_event->type = EVENT_COMPLETION;
     }
+    // --------------------------
 
     next_event->process = p;
     next_event->next = NULL;
-    if (algo == SCHED_RR && next_event->type == EVENT_QUANTUM_EXPIRE) {
+
+    // Maintain stable event ordering
+    if (next_event->type == EVENT_QUANTUM_EXPIRE) {
         push_event_sorted_before_equal(event_queue, next_event);
     } else {
         push_event_sorted(event_queue, next_event);
