@@ -42,8 +42,8 @@ static void handle_completion(SchedulerState *state, Process *process) {
 
     process->remaining_time = 0;
     process->finish_time = state->current_time;
-    state->running_index = -1;
     state->completed_count++;
+    state->running_index = -1;
 }
 
 /**
@@ -63,7 +63,7 @@ static int handle_arrival(SchedulerState *state, Process *process) {
 /**
  * STCF Preemption logic.
  */
-static void maybe_preempt_stcf(SchedulerState *state) {
+static void maybe_preempt_stcf(SchedulerState *state, Event **event_queue) {
     if (!state || state->running_index == -1) return;
 
     int candidate_idx = schedule_stcf(state);
@@ -72,12 +72,19 @@ static void maybe_preempt_stcf(SchedulerState *state) {
     Process *running = &state->processes[state->running_index];
     Process *candidate = &state->processes[candidate_idx];
 
+    // Preemption Condition
     if (candidate->remaining_time < running->remaining_time) {
+        
+        // Log what it did so far
+        log_execution(state, running->pid, state->last_dispatch_time, state->current_time);
+        
+        // Cancel the old completion event
+        // This stops the process from "finishing" in the future
+        cancel_event(event_queue, running, EVENT_COMPLETION);
+
+        // Update remaining time and put back in ready queue
         int elapsed = state->current_time - state->last_dispatch_time;
         running->remaining_time -= (elapsed > 0) ? elapsed : 0;
-        
-        // Record the partial slice
-        log_execution(state, running->pid, state->last_dispatch_time, state->current_time);
         
         enqueue_ready(state, state->running_index);
         state->running_index = -1;
@@ -135,12 +142,44 @@ void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
         switch (current->type) {
             case EVENT_ARRIVAL:
                 status = handle_arrival(state, current->process);
+                if (algorithm == SCHED_STCF) {
+                    maybe_preempt_stcf(state, &event_queue);
+                }
                 break;
             case EVENT_COMPLETION:
                 handle_completion(state, current->process);
                 break;
             case EVENT_QUANTUM_EXPIRE:
-                maybe_preempt_rr(state, &event_queue);
+                if (algorithm == SCHED_RR) {
+                    maybe_preempt_rr(state, &event_queue);
+                } else if (algorithm == SCHED_MLFQ && state->running_index != -1) {
+                    Process *p = &state->processes[state->running_index];
+                    
+                    // Log execution slice
+                    log_execution(state, p->pid, state->last_dispatch_time, state->current_time);
+
+                    // Update time accounting
+                    int elapsed = state->current_time - state->last_dispatch_time;
+                    p->remaining_time -= elapsed;
+                    p->time_in_queue += elapsed;
+
+                    // Check for demotion
+                    if (p->time_in_queue >= state->allotments[p->priority]) {
+                        if (p->priority < state->num_levels - 1) {
+                            p->priority++;
+                            p->time_in_queue = 0;
+                        }
+                    }
+
+                    // Re-queue if not done
+                    if (p->remaining_time > 0) {
+                        enqueue_ready(state, state->running_index);
+                    } else {
+                        p->finish_time = state->current_time;
+                        state->completed_count++;
+                    }
+                    state->running_index = -1;
+                }
                 break;
             default: break;
         }
@@ -148,10 +187,6 @@ void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
         if (status == -1) {
             free(current);
             break; 
-        }
-
-        if (algorithm == SCHED_STCF) {
-            maybe_preempt_stcf(state);
         }
 
         // Try to put a process on the CPU if it's idle
@@ -210,21 +245,46 @@ int main(int argc, char *argv[]) {
     state.completed_count = 0;
     state.last_dispatch_time = 0;
 
+    // MLFQ-specific initialization
     if (selected_algo == SCHED_MLFQ) {
-        if (schedule_mlfq(&state, NULL) != 0) {
-            free(state.processes);
-            free(state.ready_queue);
-            free(state.history);
-            return -1;
+        state.num_levels = 3;
+        state.boost_period = 500;
+        
+        state.quantums = malloc(sizeof(int) * state.num_levels);
+        state.allotments = malloc(sizeof(int) * state.num_levels);
+
+        // Level 0: Quantum 10, Allotment 10
+        state.quantums[0] = 10;
+        state.allotments[0] = 10;
+
+        // Level 1: Quantum 30, Allotment 60
+        state.quantums[1] = 30;
+        state.allotments[1] = 60;
+
+        // Level 2: Quantum 80, Allotment infinite
+        state.quantums[2] = 80;
+        state.allotments[2] = 999999;
+
+        // Initialize all processes at Level 0
+        for (int i = 0; i < state.num_processes; i++) {
+            state.processes[i].priority = 0;
+            state.processes[i].time_in_queue = 0;
         }
-    } else {
-        simulate_scheduler(&state, selected_algo);
     }
+
+    state.history = NULL;
+    state.history_count = 0;
+    state.history_capacity = 0;
+    simulate_scheduler(&state, selected_algo);
 
     // Cleanup
     free(state.processes);
     free(state.ready_queue);
     free(state.history);
+    if (selected_algo == SCHED_MLFQ) {
+        free(state.quantums);
+        free(state.allotments);
+    }
     
     return 0;
 }
