@@ -1,49 +1,66 @@
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include "gantt.h"
 
-/*
- * NOTE: This is a simplified Gantt chart (Fixing Finding #15).
- * For non-preemptive algorithms (FCFS, SJF), it is 100% accurate.
- * For preemptive algorithms (STCF, RR), it currently shows the process 
- * from its first start to its final completion. 
- * * TODO: To perfectly handle preemption, the SchedulerState would need 
- * an array of "ExecutionSlices" to track every time a process was 
- * swapped in and out.
- */
-
-/**
- * Renders a visual timeline of process execution to the console.
- */
 void print_gantt_chart(SchedulerState *state) {
-    // Safety guard: ensure there is history to print
     if (!state || state->history_count <= 0) {
-        printf("\nGantt Chart: No execution history to display.\n");
+        printf("\n=== Gantt Chart ===\nNo history to display.\n");
         return;
     }
 
-    printf("\n=== Gantt Chart (Execution Timeline) ===\n");
-    printf("(Scale: each '-' is roughly 4ms of CPU time)\n\n");
+    const int SCALE = 10; 
+    printf("\n=== Gantt Chart ===\n(scaled: each char = %d time units)\n", SCALE);
 
-    // Iterate through the recorded history slices chronologically
+    // Dynamically allocate positions to match history_count + 1
+    int *positions = malloc(sizeof(int) * (state->history_count + 1));
+    if (!positions) return; 
+
+    int current_offset = 0;
+
+    // Row 1: Blocks
     for (int i = 0; i < state->history_count; i++) {
         ExecutionSlice *s = &state->history[i];
-        
-        // Print the PID and the specific time this slice started
-        printf("[%3d] %-5s: ", s->start_time, s->pid);
-
-        // Calculate dashes based only on THIS slice's duration
         int duration = s->end_time - s->start_time;
-        int dashes = duration / 4;
-        if (dashes < 1) dashes = 1; 
+        int width = duration / SCALE;
+        
+        // Ensure width is at least as long as the PID string
+        int pid_len = (int)strlen(s->pid);
+        if (width < pid_len) width = pid_len;
 
-        for (int d = 0; d < dashes; d++) {
+        positions[i] = current_offset;
+        
+        printf("[%s", s->pid);
+        // Fill the rest of the block width with dashes
+        for (int j = 0; j < (width - pid_len); j++) {
             printf("-");
         }
-
-        // Print the time this specific slice ended
-        printf(" [%3d]\n", s->end_time);
+        printf("]");
+        
+        current_offset += (width + 2); // +2 for the brackets '[' and ']'
     }
     
+    // Store final end position for the last timestamp
+    positions[state->history_count] = current_offset;
     printf("\n");
+
+    // Row 2: Time Markers
+    int printed_until = 0;
+    for (int i = 0; i <= state->history_count; i++) {
+        // Space out to the start of the current block
+        while (printed_until < positions[i]) {
+            printf(" ");
+            printed_until++;
+        }
+        
+        int time = (i < state->history_count) ? 
+                    state->history[i].start_time : 
+                    state->history[i-1].end_time;
+                    
+        int len = printf("%d", time);
+        printed_until += len;
+    }
+    printf("\n\n");
+
+    free(positions);
 }
