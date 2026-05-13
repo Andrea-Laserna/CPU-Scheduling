@@ -6,6 +6,7 @@ BIN = schedsim
 
 # List of source files based on the lab requirements
 SRCS = $(SRC_DIR)/main.c \
+       $(SRC_DIR)/compare.c \
        $(SRC_DIR)/process.c \
        $(SRC_DIR)/fcfs.c \
        $(SRC_DIR)/sjf.c \

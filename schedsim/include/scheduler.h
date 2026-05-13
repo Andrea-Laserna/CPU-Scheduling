@@ -44,6 +44,7 @@ typedef struct {
 
     int running_index;     // -1 if CPU idle
     int completed_count;
+	int context_switches;
 	int quantum;
 
 	int last_dispatch_time;
@@ -99,6 +100,7 @@ Event *pop_event(Event **head);
 
 // Top-level simulation entry point
 void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm);
+void run_comparative_analysis(Process *loaded_processes, int num_processes, int rr_quantum);
 
 #endif
 

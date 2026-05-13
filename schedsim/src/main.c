@@ -97,6 +97,7 @@ static void maybe_preempt_stcf(SchedulerState *state, Event **event_queue) {
         running->remaining_time -= (elapsed > 0) ? elapsed : 0;
         
         enqueue_ready(state, state->running_index);
+        state->context_switches++;
         state->running_index = -1;
     }
 }
@@ -129,6 +130,7 @@ static void maybe_preempt_rr(SchedulerState *state, Event **event_queue) {
             } else {
                 enqueue_ready(state, state->running_index);
             }
+            state->context_switches++;
         } else {
             running->finish_time = state->current_time;
             state->completed_count++;
@@ -168,6 +170,7 @@ void maybe_preempt_mlfq(SchedulerState *state, Event **event_queue) {
 
         // Put it back in the ready queue and clear CPU
         enqueue_priority(state, running->priority, state->running_index);
+        state->context_switches++;
         state->running_index = -1;
     }
 }
@@ -237,6 +240,7 @@ void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
                     // Re-queue if not done
                     if (p->remaining_time > 0) {
                         enqueue_priority(state, p->priority, state->running_index);
+                        state->context_switches++;
                     } else {
                         p->finish_time = state->current_time;
                         state->completed_count++;
@@ -305,8 +309,12 @@ int main(int argc, char *argv[]) {
     state.current_time = 0;
     state.num_processes = 0;
     state.processes = NULL;
-    state.ready_queue = NULL; 
     state.quantum = 4; 
+    state.context_switches = 0;
+
+    int compare_mode = 0;
+    char *input_file = NULL;
+    int rr_quantum = 10; // Default fallback
     
     // Initialize History for Gantt Chart
     state.history_count = 0;
@@ -314,10 +322,11 @@ int main(int argc, char *argv[]) {
     state.history = malloc(sizeof(ExecutionSlice) * state.history_capacity);
 
     SchedulingAlgorithm selected_algo = SCHED_FCFS; 
-    char *input_file = NULL;
 
     for (int i = 1; i < argc; i++) {
-        if (strncmp(argv[i], "--algorithm=", 12) == 0) {
+        if (strcmp(argv[i], "--compare") == 0) {
+            compare_mode = 1;
+        } else if (strncmp(argv[i], "--algorithm=", 12) == 0) {
             char *algo_name = argv[i] + 12;
             if (strcmp(algo_name, "FCFS") == 0) selected_algo = SCHED_FCFS;
             else if (strcmp(algo_name, "SJF") == 0) selected_algo = SCHED_SJF;
@@ -328,6 +337,7 @@ int main(int argc, char *argv[]) {
             input_file = argv[i] + 8;
         } else if (strncmp(argv[i], "--quantum=", 10) == 0) {
             state.quantum = atoi(argv[i] + 10);
+            rr_quantum = state.quantum;
         }
     }
 
@@ -336,12 +346,20 @@ int main(int argc, char *argv[]) {
     state.processes = load_processes(input_file, &state.num_processes);
     if (!state.processes) return -1;
 
+    if (compare_mode) {
+        run_comparative_analysis(state.processes, state.num_processes, rr_quantum);
+        free(state.processes);
+        free(state.history);
+        return 0;
+    }
+
     state.ready_capacity = state.num_processes + 1;
     state.ready_queue = malloc(sizeof(int) * state.ready_capacity);
     
     state.ready_head = state.ready_tail = state.ready_count = 0;
     state.running_index = -1;
     state.completed_count = 0;
+    state.context_switches = 0;
     state.last_dispatch_time = 0;
 
     // MLFQ-specific initialization
