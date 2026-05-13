@@ -27,40 +27,40 @@ void calculate_metrics(SchedulerState *state) {
 
 // Prints a per-process metrics table plus averages
 void print_metrics(SchedulerState *state) {
-    // Safety guard against empty workloads
-    if (state->num_processes <= 0) {
-        printf("No processes were simulated. No metrics to display.\n");
-        return; 
-    }
+    if (!state || state->num_processes == 0) return;
 
-    printf("\n=== Metrics ===\n");
-    printf("PID\tArrival\tBurst\tFinish\tTurnaround\tWaiting\tResponse\n");
+    int total_tt = 0;
+    int total_wt = 0;
+    int total_rt = 0;
+
+    printf("\n=== Detailed Metrics ===\n");
     
-    double total_tt = 0, total_wt = 0, total_rt = 0;
-
     for (int i = 0; i < state->num_processes; i++) {
         Process *p = &state->processes[i];
-        
-        // FIX: Use the PRE-CALCULATED values from the struct 
-        // instead of re-calculating them inline.
-        printf("%s\t%d\t%d\t%d\t%d\t\t%d\t%d\n", 
-               p->pid, 
-               p->arrival_time, 
-               p->burst_time, 
-               p->finish_time, 
-               p->turnaround_time, 
-               p->waiting_time, 
-               p->response_time);
-        
-        total_tt += p->turnaround_time;
-        total_wt += p->waiting_time;
-        total_rt += p->response_time;
+
+        // Calculate the metrics based on the recorded timestamps
+        int tt = p->finish_time - p->arrival_time;
+        int wt = tt - p->burst_time;
+        int rt = p->start_time - p->arrival_time;
+
+        // Accumulate totals for the averages
+        total_tt += tt;
+        total_wt += wt;
+        total_rt += rt;
+
+        // Print per-process detailed formulas matching Listing 8
+        printf("Process %s:\n", p->pid);
+        printf("  Arrival Time:    %d\n", p->arrival_time);
+        printf("  Burst Time:      %d\n", p->burst_time);
+        printf("  Finish Time:     %d\n", p->finish_time);
+        printf("  Turnaround Time: %d - %d = %d\n", p->finish_time, p->arrival_time, tt);
+        printf("  Waiting Time:    %d - %d = %d\n", tt, p->burst_time, wt);
+        printf("  Response Time:   %d - %d = %d\n\n", p->start_time, p->arrival_time, rt);
     }
 
-    printf("-----------------------------------------------------------------\n");
-    // Already safe from div-by-zero due to the guard at the top
-    printf("Average\t\t\t\t%.1f\t\t%.1f\t%.1f\n", 
-           total_tt / state->num_processes, 
-           total_wt / state->num_processes, 
-           total_rt / state->num_processes);
+    // Print the calculated averages at the bottom
+    printf("=== Average Metrics ===\n");
+    printf("Average Turnaround Time : %.2f\n", (double)total_tt / state->num_processes);
+    printf("Average Waiting Time    : %.2f\n", (double)total_wt / state->num_processes);
+    printf("Average Response Time   : %.2f\n", (double)total_rt / state->num_processes);
 }
