@@ -11,6 +11,8 @@ typedef struct {
 	int waiting_time;       // Time spent waiting
 	int priority;           // For MLFQ
 	int time_in_queue;      // For MLFQ allotment tracking
+	int response_time;
+	int turnaround_time;
 } Process;
 
 // Load processes from a workload text file into a dynamically allocated array

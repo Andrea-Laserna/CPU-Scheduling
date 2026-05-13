@@ -4,25 +4,29 @@
 // Pull in Process struct used by all schedulers
 #include "process.h"
 
-// One queue level in MLFQ
-typedef struct {
-	int level;              // Queue priority level (0 = highest)
-	int time_quantum;       // Time slice for this queue (-1 for FCFS)
-	int allotment;          // Max time before demotion (-1 for infinite)
-	Process *queue;         // Array or linked list of processes
-	int size;               // Current queue size
-} MLFQQueue;
+#define MAX_LEVELS 3
 
-// Global container for all MLFQ queue levels and boost settings
 typedef struct {
-	MLFQQueue *queues;      // Array of queues
-	int num_queues;         // Number of priority levels
-	int boost_period;       // Period for priority boost (S)
-	int last_boost;         // Last boost time
-} MLFQScheduler;
+	int *queue;
+	int head;
+	int tail;
+	int count;
+	int capacity;
+} PriorityQueue;
 
 // Forward declaration so we can reference MLFQConfig before its full definition
-typedef struct MLFQConfig MLFQConfig;
+typedef struct MLFQConfig {
+	int num_levels;
+	int *quantums;
+	int *allotments;
+	int boost_period;
+} MLFQConfig;
+
+typedef struct {
+    char pid[16];
+    int start_time;
+    int end_time;
+} ExecutionSlice;
 
 // Shared simulation state used by every algorithm
 typedef struct {
@@ -40,8 +44,21 @@ typedef struct {
 
     int running_index;     // -1 if CPU idle
     int completed_count;
+	int context_switches;
+	int quantum;
 
 	int last_dispatch_time;
+	
+	ExecutionSlice *history;
+    int history_count;
+    int history_capacity;
+
+	// MLFQ-specific fields
+	int num_levels;
+	int boost_period;
+	int *quantums;
+	int *allotments;
+	PriorityQueue mlfq_queues[MAX_LEVELS];
 } SchedulerState;
 
 // Return 0 on success, -1 on error
@@ -49,7 +66,7 @@ typedef struct {
 int schedule_fcfs(SchedulerState *state);
 int schedule_sjf(SchedulerState *state);
 int schedule_stcf(SchedulerState *state);
-int schedule_rr(SchedulerState *state, int quantum);
+int schedule_rr(SchedulerState *state);
 int schedule_mlfq(SchedulerState *state, MLFQConfig *config);
 
 // Identifies which high-level algorithm the simulator should run
@@ -83,6 +100,7 @@ Event *pop_event(Event **head);
 
 // Top-level simulation entry point
 void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm);
+void run_comparative_analysis(Process *loaded_processes, int num_processes, int rr_quantum);
 
 #endif
 

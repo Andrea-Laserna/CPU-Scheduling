@@ -1,53 +1,66 @@
-// src/gantt.c
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include "gantt.h"
-/*
-TODO: handle preemptive cases
-*/
-static void sort_by_start_time(SchedulerState *state, int *order) {
-    for (int i = 0; i < state->num_processes; i++) order[i] = i;
-
-    for (int i = 0; i < state->num_processes - 1; i++) {
-        for (int j = i + 1; j < state->num_processes; j++) {
-            Process *a = &state->processes[order[i]];
-            Process *b = &state->processes[order[j]];
-            if (a->start_time > b->start_time) {
-                int tmp = order[i];
-                order[i] = order[j];
-                order[j] = tmp;
-            }
-        }
-    }
-}
 
 void print_gantt_chart(SchedulerState *state) {
-    if (!state || state->num_processes <= 0) return;
+    if (!state || state->history_count <= 0) {
+        printf("\n=== Gantt Chart ===\nNo history to display.\n");
+        return;
+    }
 
-    int *order = malloc(sizeof(int) * state->num_processes);
-    if (!order) return;
+    const int SCALE = 10; 
+    printf("\n=== Gantt Chart ===\n(scaled: each char = %d time units)\n", SCALE);
 
-    sort_by_start_time(state, order);
+    // Dynamically allocate positions to match history_count + 1
+    int *positions = malloc(sizeof(int) * (state->history_count + 1));
+    if (!positions) return; 
 
-    printf("\n=== Gantt Chart ===\n");
-    for (int i = 0; i < state->num_processes; i++) {
-        Process *p = &state->processes[order[i]];
-        int dashes = p->burst_time / 16;
-        if (dashes < 1) dashes = 1;
+    int current_offset = 0;
 
-        printf("[%s", p->pid);
-        for (int k = 0; k < dashes; k++) printf("-");
+    // Row 1: Blocks
+    for (int i = 0; i < state->history_count; i++) {
+        ExecutionSlice *s = &state->history[i];
+        int duration = s->end_time - s->start_time;
+        int width = duration / SCALE;
+        
+        // Ensure width is at least as long as the PID string
+        int pid_len = (int)strlen(s->pid);
+        if (width < pid_len) width = pid_len;
+
+        positions[i] = current_offset;
+        
+        printf("[%s", s->pid);
+        // Fill the rest of the block width with dashes
+        for (int j = 0; j < (width - pid_len); j++) {
+            printf("-");
+        }
         printf("]");
+        
+        current_offset += (width + 2); // +2 for the brackets '[' and ']'
     }
+    
+    // Store final end position for the last timestamp
+    positions[state->history_count] = current_offset;
     printf("\n");
 
-    printf("Time: ");
-    printf("%d", state->processes[order[0]].start_time);
-    for (int i = 0; i < state->num_processes; i++) {
-        Process *p = &state->processes[order[i]];
-        printf("%10d", p->finish_time);
+    // Row 2: Time Markers
+    int printed_until = 0;
+    for (int i = 0; i <= state->history_count; i++) {
+        // Space out to the start of the current block
+        while (printed_until < positions[i]) {
+            printf(" ");
+            printed_until++;
+        }
+        
+        int time = (i < state->history_count) ? 
+                    state->history[i].start_time : 
+                    state->history[i-1].end_time;
+                    
+        int len = printf("%d", time);
+        printed_until += len;
     }
-    printf("\n");
+    printf("\n\n");
 
-    free(order);
+    free(positions);
 }
