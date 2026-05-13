@@ -31,7 +31,7 @@ void cancel_event(Event **head, Process *p, EventType type) {
  * Helper: Inserts an event into the linked list while keeping the time sorted.
  * This ensures the simulation always processes the "earliest" event next.
  */
-static void push_event_sorted(Event **head, Event *new_event) {
+void push_event_sorted(Event **head, Event *new_event) {
     if (!head || !new_event) return;
 
     if (!*head || new_event->time < (*head)->time) {
@@ -148,6 +148,40 @@ int dequeue_ready(SchedulerState *state) {
     return idx;
 }
 
+int enqueue_priority(SchedulerState *state, int level, int idx) {
+    if (!state || level < 0 || level >= state->num_levels) return -1;
+
+    PriorityQueue *queue = &state->mlfq_queues[level];
+    if (!queue->queue || queue->count == queue->capacity) return -1;
+
+    queue->queue[queue->tail] = idx;
+    queue->tail = (queue->tail + 1) % queue->capacity;
+    queue->count++;
+    return 0;
+}
+
+int dequeue_priority(SchedulerState *state, int level) {
+    if (!state || level < 0 || level >= state->num_levels) return -1;
+
+    PriorityQueue *queue = &state->mlfq_queues[level];
+    if (!queue->queue || queue->count == 0) return -1;
+
+    int idx = queue->queue[queue->head];
+    queue->head = (queue->head + 1) % queue->capacity;
+    queue->count--;
+    return idx;
+}
+
+void clear_priority_queues(SchedulerState *state) {
+    if (!state) return;
+
+    for (int i = 0; i < state->num_levels && i < MAX_LEVELS; i++) {
+        state->mlfq_queues[i].head = 0;
+        state->mlfq_queues[i].tail = 0;
+        state->mlfq_queues[i].count = 0;
+    }
+}
+
 /**
  * The "Switchboard": Routes the scheduling decision to the specific algorithm logic.
  */
@@ -232,8 +266,13 @@ int try_dispatch(SchedulerState *state, Event **event_queue, SchedulingAlgorithm
     if (next_idx == -1) return 0; 
 
     // Remove from ready queue
-    if (algo == SCHED_FCFS || algo == SCHED_RR) dequeue_ready(state);
-    else remove_ready_by_process_idx(state, next_idx);
+    if (algo == SCHED_FCFS || algo == SCHED_RR) {
+        dequeue_ready(state);
+    } else if (algo == SCHED_MLFQ) {
+        dequeue_priority(state, state->processes[next_idx].priority);
+    } else {
+        remove_ready_by_process_idx(state, next_idx);
+    }
 
     Process *p = &state->processes[next_idx];
     state->running_index = next_idx;
@@ -253,10 +292,13 @@ int try_dispatch(SchedulerState *state, Event **event_queue, SchedulingAlgorithm
     } else if (algo == SCHED_MLFQ) {
         // Use the quantum for this process's priority level
         current_quantum = state->quantums[p->priority];
+        if (current_quantum <= 0 && p->priority == state->num_levels - 1) {
+            current_quantum = 80;
+        }
     }
 
-    // 2. Decide if it expires or completes
-    if (current_quantum != -1 && p->remaining_time > current_quantum) {
+    // Only schedule a Quantum Expire if current_quantum is positive
+    if (current_quantum > 0 && p->remaining_time > current_quantum) {
         next_event->time = state->current_time + current_quantum;
         next_event->type = EVENT_QUANTUM_EXPIRE;
     } else {

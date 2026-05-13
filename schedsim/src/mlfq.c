@@ -2,29 +2,19 @@
 #include "scheduler.h"
 
 /**
- * MLFQ Picker: Scans the ready_queue (array of indices) 
- * and selects the process with the highest priority.
+ * MLFQ Picker: Scans the independent priority queues from top to bottom
+ * and returns the next FIFO process from the first non-empty level.
  */
 int schedule_mlfq(SchedulerState *state, MLFQConfig *config) {
-    (void)config; // Unused parameter
-    
-    // Safety guard
-    if (!state || state->ready_count == 0) return -1;
+    (void)config;
+    if (!state) return -1;
 
-    int best_idx = 0;
-    int best_priority = state->processes[state->ready_queue[0]].priority;
-
-    // Scan all processes in ready_queue and find highest priority (lowest number)
-    for (int i = 1; i < state->ready_count; i++) {
-        int p_idx = state->ready_queue[i]; 
-        Process *p = &state->processes[p_idx];
-
-        if (p->priority < best_priority) {
-            best_priority = p->priority;
-            best_idx = i;
+    for (int level = 0; level < state->num_levels && level < MAX_LEVELS; level++) {
+        PriorityQueue *queue = &state->mlfq_queues[level];
+        if (queue->count > 0) {
+            return queue->queue[queue->head];
         }
     }
 
-    // Return the actual process index (not the position in ready_queue)
-    return state->ready_queue[best_idx];
+    return -1;
 }
