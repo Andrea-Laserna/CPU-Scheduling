@@ -10,7 +10,7 @@ typedef struct {
 	int tail;
 	int count;
 	int capacity;
-} PriorityQueue;
+} FIFOQueue;
 
 // Forward declaration so we can reference MLFQConfig before its full definition
 typedef struct MLFQConfig {
@@ -56,7 +56,7 @@ typedef struct {
 	int boost_period;
 	int *quantums;
 	int *allotments;
-	PriorityQueue *mlfq_queues;
+	FIFOQueue *mlfq_queues;
 } SchedulerState;
 
 // Return 0 on success, -1 on error

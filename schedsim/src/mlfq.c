@@ -10,7 +10,7 @@ int schedule_mlfq(SchedulerState *state, MLFQConfig *config) {
     if (!state) return -1;
 
     for (int level = 0; level < state->num_levels; level++) {
-        PriorityQueue *queue = &state->mlfq_queues[level];
+        FIFOQueue *queue = &state->mlfq_queues[level];
         if (queue->count > 0) {
             return queue->queue[queue->head];
         }

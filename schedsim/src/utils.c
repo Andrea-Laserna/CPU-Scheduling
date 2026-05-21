@@ -151,7 +151,7 @@ int dequeue_ready(SchedulerState *state) {
 int enqueue_priority(SchedulerState *state, int level, int idx) {
     if (!state || level < 0 || level >= state->num_levels) return -1;
 
-    PriorityQueue *queue = &state->mlfq_queues[level];
+    FIFOQueue *queue = &state->mlfq_queues[level];
     if (!queue->queue || queue->count == queue->capacity) return -1;
 
     queue->queue[queue->tail] = idx;
@@ -163,7 +163,7 @@ int enqueue_priority(SchedulerState *state, int level, int idx) {
 int dequeue_priority(SchedulerState *state, int level) {
     if (!state || level < 0 || level >= state->num_levels) return -1;
 
-    PriorityQueue *queue = &state->mlfq_queues[level];
+    FIFOQueue *queue = &state->mlfq_queues[level];
     if (!queue->queue || queue->count == 0) return -1;
 
     int idx = queue->queue[queue->head];

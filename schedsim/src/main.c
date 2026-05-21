@@ -402,7 +402,7 @@ int main(int argc, char *argv[]) {
         
         state.quantums = malloc(sizeof(int) * state.num_levels);
         state.allotments = malloc(sizeof(int) * state.num_levels);
-        state.mlfq_queues = malloc(sizeof(PriorityQueue) * state.num_levels);
+        state.mlfq_queues = malloc(sizeof(FIFOQueue) * state.num_levels);
         if (!state.mlfq_queues) {
             free(state.quantums);
             free(state.allotments);

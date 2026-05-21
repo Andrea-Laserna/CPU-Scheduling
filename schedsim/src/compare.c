@@ -46,7 +46,7 @@ static void init_comparison_state(SchedulerState *state, Process *loaded_process
         state->boost_period = 200;
         state->quantums = malloc(sizeof(int) * state->num_levels);
         state->allotments = malloc(sizeof(int) * state->num_levels);
-        state->mlfq_queues = malloc(sizeof(PriorityQueue) * state->num_levels);
+        state->mlfq_queues = malloc(sizeof(FIFOQueue) * state->num_levels);
 
         for (int i = 0; i < state->num_levels; i++) {
             state->mlfq_queues[i].capacity = num_processes + 1;
