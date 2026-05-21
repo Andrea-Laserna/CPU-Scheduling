@@ -20,6 +20,13 @@ static void init_comparison_state(SchedulerState *state, Process *loaded_process
     state->processes = malloc(sizeof(Process) * num_processes);
     state->ready_capacity = num_processes + 1;
     state->ready_queue = malloc(sizeof(int) * state->ready_capacity);
+    if (!state->processes || !state->ready_queue) {
+        free(state->processes);
+        free(state->ready_queue);
+        memset(state, 0, sizeof(*state));
+        return;
+    }
+
     state->history = NULL;
     state->history_count = 0;
     state->history_capacity = 0;
@@ -48,9 +55,31 @@ static void init_comparison_state(SchedulerState *state, Process *loaded_process
         state->allotments = malloc(sizeof(int) * state->num_levels);
         state->mlfq_queues = malloc(sizeof(FIFOQueue) * state->num_levels);
 
+        if (!state->quantums || !state->allotments || !state->mlfq_queues) {
+            free(state->quantums);
+            free(state->allotments);
+            free(state->mlfq_queues);
+            free(state->processes);
+            free(state->ready_queue);
+            memset(state, 0, sizeof(*state));
+            return;
+        }
+
         for (int i = 0; i < state->num_levels; i++) {
             state->mlfq_queues[i].capacity = num_processes + 1;
             state->mlfq_queues[i].queue = malloc(sizeof(int) * state->mlfq_queues[i].capacity);
+            if (!state->mlfq_queues[i].queue) {
+                for (int j = 0; j < i; j++) {
+                    free(state->mlfq_queues[j].queue);
+                }
+                free(state->quantums);
+                free(state->allotments);
+                free(state->mlfq_queues);
+                free(state->processes);
+                free(state->ready_queue);
+                memset(state, 0, sizeof(*state));
+                return;
+            }
             state->mlfq_queues[i].head = 0;
             state->mlfq_queues[i].tail = 0;
             state->mlfq_queues[i].count = 0;
@@ -114,6 +143,10 @@ void run_comparative_analysis(Process *loaded_processes, int num_processes, int 
         SchedulingAlgorithm algo = algos[a];
         SchedulerState state;
         init_comparison_state(&state, loaded_processes, num_processes, algo, rr_quantum);
+        if (!state.processes || !state.ready_queue) {
+            fprintf(stderr, "Error: Failed to initialize comparison state.\n");
+            return;
+        }
 
         char dynamic_name[32];
         if (algo == SCHED_RR) {
