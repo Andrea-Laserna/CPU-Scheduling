@@ -245,7 +245,12 @@ void log_execution(SchedulerState *state, char *pid, int start, int end) {
         state->history = malloc(sizeof(ExecutionSlice) * state->history_capacity);
     } else if (state->history_count >= state->history_capacity) {
         state->history_capacity *= 2;
-        state->history = realloc(state->history, sizeof(ExecutionSlice) * state->history_capacity);
+        ExecutionSlice *temp = realloc(state->history, sizeof(ExecutionSlice) * state->history_capacity);
+        if (!temp) {
+            fprintf(stderr, "Error: realloc failed while growing history\n");
+            return;
+        }
+        state->history = temp;
     }
 
     // Log the data
