@@ -6,6 +6,8 @@
 #include "gantt.h"
 #include "utils.h"
 
+static Process *load_processes_inline(const char *arg, int *num_processes);
+
 /**
  * Helper to clear any leftover events in the linked list.
  */
@@ -314,6 +316,7 @@ int main(int argc, char *argv[]) {
 
     int compare_mode = 0;
     char *input_file = NULL;
+    char *inline_processes = NULL;
     int rr_quantum = 10; // Default fallback
     
     // Initialize History for Gantt Chart
@@ -335,15 +338,26 @@ int main(int argc, char *argv[]) {
             else if (strcmp(algo_name, "MLFQ") == 0) selected_algo = SCHED_MLFQ;
         } else if (strncmp(argv[i], "--input=", 8) == 0) {
             input_file = argv[i] + 8;
+        } else if (strncmp(argv[i], "--processes=", 12) == 0) {
+            inline_processes = argv[i] + 12;
         } else if (strncmp(argv[i], "--quantum=", 10) == 0) {
             state.quantum = atoi(argv[i] + 10);
             rr_quantum = state.quantum;
         }
     }
 
-    if (!input_file) return -1;
+    if (input_file && inline_processes) {
+        fprintf(stderr, "Error: Use either --input= or --processes=, not both.\n");
+        return -1;
+    }
 
-    state.processes = load_processes(input_file, &state.num_processes);
+    if (!input_file && !inline_processes) return -1;
+
+    if (inline_processes) {
+        state.processes = load_processes_inline(inline_processes, &state.num_processes);
+    } else {
+        state.processes = load_processes(input_file, &state.num_processes);
+    }
     if (!state.processes) return -1;
 
     if (compare_mode) {
@@ -411,4 +425,71 @@ int main(int argc, char *argv[]) {
     }
     
     return 0;
+}
+
+static Process *load_processes_inline(const char *arg, int *num_processes) {
+    if (!arg || !num_processes) return NULL;
+
+    int capacity = 10;
+    int count = 0;
+    Process *processes = malloc(sizeof(Process) * capacity);
+    if (!processes) return NULL;
+
+    char *input = strdup(arg);
+    if (!input) {
+        free(processes);
+        return NULL;
+    }
+
+    char *saveptr = NULL;
+    char *token = strtok_r(input, ",", &saveptr);
+    while (token) {
+        char pid[16];
+        int arrival = 0;
+        int burst = 0;
+
+        if (sscanf(token, "%15[^:]:%d:%d", pid, &arrival, &burst) != 3) {
+            fprintf(stderr, "Error: Invalid --processes token '%s'\n", token);
+            free(input);
+            free(processes);
+            return NULL;
+        }
+
+        if (arrival < 0 || burst <= 0) {
+            fprintf(stderr, "Warning: Skipping invalid process %s (Arrival: %d, Burst: %d)\n",
+                    pid, arrival, burst);
+            token = strtok_r(NULL, ",", &saveptr);
+            continue;
+        }
+
+        if (count >= capacity) {
+            int new_capacity = capacity * 2;
+            Process *temp = realloc(processes, sizeof(Process) * new_capacity);
+            if (!temp) {
+                free(input);
+                free(processes);
+                return NULL;
+            }
+            processes = temp;
+            capacity = new_capacity;
+        }
+
+        Process *p = &processes[count++];
+        strncpy(p->pid, pid, sizeof(p->pid) - 1);
+        p->pid[sizeof(p->pid) - 1] = '\0';
+        p->arrival_time = arrival;
+        p->burst_time = burst;
+        p->remaining_time = burst;
+        p->start_time = -1;
+        p->finish_time = 0;
+        p->waiting_time = 0;
+        p->priority = 0;
+        p->time_in_queue = 0;
+
+        token = strtok_r(NULL, ",", &saveptr);
+    }
+
+    free(input);
+    *num_processes = count;
+    return processes;
 }
