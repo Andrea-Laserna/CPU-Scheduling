@@ -4,8 +4,6 @@
 // Pull in Process struct used by all schedulers
 #include "process.h"
 
-#define MAX_LEVELS 3
-
 typedef struct {
 	int *queue;
 	int head;
@@ -58,7 +56,7 @@ typedef struct {
 	int boost_period;
 	int *quantums;
 	int *allotments;
-	PriorityQueue mlfq_queues[MAX_LEVELS];
+	PriorityQueue *mlfq_queues;
 } SchedulerState;
 
 // Return 0 on success, -1 on error

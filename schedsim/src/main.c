@@ -402,8 +402,14 @@ int main(int argc, char *argv[]) {
         
         state.quantums = malloc(sizeof(int) * state.num_levels);
         state.allotments = malloc(sizeof(int) * state.num_levels);
+        state.mlfq_queues = malloc(sizeof(PriorityQueue) * state.num_levels);
+        if (!state.mlfq_queues) {
+            free(state.quantums);
+            free(state.allotments);
+            return -1;
+        }
 
-        for (int i = 0; i < state.num_levels && i < MAX_LEVELS; i++) {
+        for (int i = 0; i < state.num_levels; i++) {
             state.mlfq_queues[i].capacity = state.num_processes + 1;
             state.mlfq_queues[i].queue = malloc(sizeof(int) * state.mlfq_queues[i].capacity);
             state.mlfq_queues[i].head = 0;
@@ -445,11 +451,12 @@ int main(int argc, char *argv[]) {
     free(state.ready_queue);
     free(state.history);
     if (selected_algo == SCHED_MLFQ) {
-        for (int i = 0; i < state.num_levels && i < MAX_LEVELS; i++) {
+        for (int i = 0; i < state.num_levels; i++) {
             free(state.mlfq_queues[i].queue);
         }
         free(state.quantums);
         free(state.allotments);
+        free(state.mlfq_queues);
     }
     
     return 0;
@@ -653,7 +660,7 @@ static int parse_mlfq_config(const char *path, MLFQConfig *config) {
 
     fclose(file);
 
-    if (num_levels <= 0 || num_levels > MAX_LEVELS) {
+    if (num_levels <= 0) {
         free(quantums_text);
         free(allotments_text);
         return -1;

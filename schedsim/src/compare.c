@@ -46,8 +46,9 @@ static void init_comparison_state(SchedulerState *state, Process *loaded_process
         state->boost_period = 200;
         state->quantums = malloc(sizeof(int) * state->num_levels);
         state->allotments = malloc(sizeof(int) * state->num_levels);
+        state->mlfq_queues = malloc(sizeof(PriorityQueue) * state->num_levels);
 
-        for (int i = 0; i < state->num_levels && i < MAX_LEVELS; i++) {
+        for (int i = 0; i < state->num_levels; i++) {
             state->mlfq_queues[i].capacity = num_processes + 1;
             state->mlfq_queues[i].queue = malloc(sizeof(int) * state->mlfq_queues[i].capacity);
             state->mlfq_queues[i].head = 0;
@@ -72,11 +73,12 @@ static void destroy_comparison_state(SchedulerState *state, SchedulingAlgorithm 
     free(state->history);
 
     if (algo == SCHED_MLFQ) {
-        for (int i = 0; i < state->num_levels && i < MAX_LEVELS; i++) {
+        for (int i = 0; i < state->num_levels; i++) {
             free(state->mlfq_queues[i].queue);
         }
         free(state->quantums);
         free(state->allotments);
+        free(state->mlfq_queues);
     }
 }
 

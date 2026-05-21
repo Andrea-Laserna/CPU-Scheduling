@@ -175,7 +175,7 @@ int dequeue_priority(SchedulerState *state, int level) {
 void clear_priority_queues(SchedulerState *state) {
     if (!state) return;
 
-    for (int i = 0; i < state->num_levels && i < MAX_LEVELS; i++) {
+    for (int i = 0; i < state->num_levels; i++) {
         state->mlfq_queues[i].head = 0;
         state->mlfq_queues[i].tail = 0;
         state->mlfq_queues[i].count = 0;
