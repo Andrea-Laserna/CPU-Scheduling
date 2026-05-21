@@ -345,7 +345,13 @@ int main(int argc, char *argv[]) {
         } else if (strncmp(argv[i], "--mlfq-config=", 14) == 0) {
             mlfq_config_path = argv[i] + 14;
         } else if (strncmp(argv[i], "--quantum=", 10) == 0) {
-            state.quantum = atoi(argv[i] + 10);
+            char *endptr = NULL;
+            long parsed = strtol(argv[i] + 10, &endptr, 10);
+            if (endptr == argv[i] + 10 || *endptr != '\0' || parsed <= 0) {
+                fprintf(stderr, "Error: Invalid --quantum value. Must be a positive integer.\n");
+                return -1;
+            }
+            state.quantum = (int)parsed;
             rr_quantum = state.quantum;
         }
     }
