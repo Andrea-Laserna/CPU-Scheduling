@@ -62,7 +62,7 @@ Process *load_processes(const char *filename, int *num_processes)
         if (sscanf(line, "%15s %d %d", p->pid, &p->arrival_time, &p->burst_time) == 3)
         {
             // Reject invalid values 
-            if (p->arrival_time < 0 || p->burst_time <= 0) {
+            if (p->arrival_time < 0 || p->burst_time < 0) {
                 fprintf(stderr, "Warning: Skipping invalid process %s (Arrival: %d, Burst: %d)\n", 
                         p->pid, p->arrival_time, p->burst_time);
                 continue; 
