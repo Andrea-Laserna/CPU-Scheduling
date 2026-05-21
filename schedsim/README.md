@@ -1,34 +1,73 @@
-# Step 1: Set Up Project Structure
-1. Organized files
-2. Defined data structures
-    - include/
-        |_ process.h
-        |_ scheduler.h
-3. Makefile
+# CPU Scheduling Simulator
 
-# Step 2: Simulation Engine
-1. Parse argument in main.c
-2. Handle creation and loading of processes in process.c
-    - load_processes: read input files
-    - initialize_processL set initilal remaining time = burst time and set start time to -1
-3. Event manager to manage timeline/even linked list in utils.c
-    - initialize_events: takes list of processes and create event arrival for each
-    - push_event: add new event to list
-    - pop_event: take next event from head of list
-4. Store the math in metrics.c
-    - calculate_metrics: after simulation, calculate TT, WT, RT
+## Members
+- Andrea Laserna
+- Cedric Oyco
 
+## Implemented Algorithms
+- FCFS
+- SJF
+- STCF
+- RR
+- MLFQ
 
-# Execute
-1.
+## Build
 ```
 make
 ```
-2.
+
+## Usage
+File-based workload:
 ```
 ./schedsim --algorithm=FCFS --input=tests/workload1.txt
 ```
 
+Inline workload:
+```
+./schedsim --algorithm=FCFS --processes="A:0:240,B:10:180"
+```
+
+Round Robin with custom quantum:
 ```
 ./schedsim --algorithm=RR --quantum=30 --input=tests/workload1.txt
 ```
+
+Run comparison table:
+```
+./schedsim --compare --input=tests/workload1.txt
+```
+
+## MLFQ Config
+The MLFQ config file can be passed with `--mlfq-config=PATH` and supports
+either key-value lines or positional lines. Example (key-value):
+```
+levels=3
+quantums=10,30,-1
+allotments=10,30,-1
+boost_period=200
+```
+
+Example (positional):
+```
+3
+10,30,-1
+10,30,-1
+200
+```
+
+## Example Output (FCFS workload1)
+Command:
+```
+./schedsim --algorithm=FCFS --input=tests/workload1.txt
+```
+
+Expected averages:
+```
+Average Turnaround Time : 515.00
+Average Waiting Time    : 359.00
+Average Response Time   : 359.00
+```
+
+## Known Limitations
+- Test automation is planned but not yet included (no `make test` target).
+- Comparison mode uses the default MLFQ parameters (no config support in compare).
