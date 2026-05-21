@@ -1,0 +1,6 @@
+# Expected averages for workload2.txt
+# Format: Algorithm | Avg TT | Avg WT | Avg RT
+FCFS | 11867.81 | 11618.38 | 11618.38
+SJF  | 8707.94 | 8458.50 | 8458.50
+STCF | 8598.56 | 8349.13 | 8221.09
+RR(q=30) | 16850.56 | 16601.13 | 1466.23
