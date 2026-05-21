@@ -292,9 +292,6 @@ int try_dispatch(SchedulerState *state, Event **event_queue, SchedulingAlgorithm
     } else if (algo == SCHED_MLFQ) {
         // Use the quantum for this process's priority level
         current_quantum = state->quantums[p->priority];
-        if (current_quantum <= 0 && p->priority == state->num_levels - 1) {
-            current_quantum = 80;
-        }
     }
 
     // Only schedule a Quantum Expire if current_quantum is positive
