@@ -181,12 +181,12 @@ void maybe_preempt_mlfq(SchedulerState *state, Event **event_queue) {
 void simulate_scheduler(SchedulerState *state, SchedulingAlgorithm algorithm) {
     // 1. Initialize arrivals from the loaded process list
     Event *event_queue = initialize_events(state);
-        const int mlfq_boost_interval = 500;
+    const int mlfq_boost_interval = state->boost_period;
     
     // 2. For MLFQ, schedule the very first Priority Boost event
     if (algorithm == SCHED_MLFQ) {
         Event *boost = malloc(sizeof(Event));
-            boost->time = mlfq_boost_interval;
+        boost->time = mlfq_boost_interval;
         boost->type = EVENT_PRIORITY_BOOST;
         boost->process = NULL;
         boost->next = NULL;
