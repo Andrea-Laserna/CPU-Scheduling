@@ -7,6 +7,7 @@
 #include "utils.h"
 
 static Process *load_processes_inline(const char *arg, int *num_processes);
+static int parse_mlfq_config(const char *path, MLFQConfig *config);
 
 /**
  * Helper to clear any leftover events in the linked list.
@@ -317,6 +318,7 @@ int main(int argc, char *argv[]) {
     int compare_mode = 0;
     char *input_file = NULL;
     char *inline_processes = NULL;
+    char *mlfq_config_path = NULL;
     int rr_quantum = 10; // Default fallback
     
     // Initialize History for Gantt Chart
@@ -340,6 +342,8 @@ int main(int argc, char *argv[]) {
             input_file = argv[i] + 8;
         } else if (strncmp(argv[i], "--processes=", 12) == 0) {
             inline_processes = argv[i] + 12;
+        } else if (strncmp(argv[i], "--mlfq-config=", 14) == 0) {
+            mlfq_config_path = argv[i] + 14;
         } else if (strncmp(argv[i], "--quantum=", 10) == 0) {
             state.quantum = atoi(argv[i] + 10);
             rr_quantum = state.quantum;
@@ -360,6 +364,10 @@ int main(int argc, char *argv[]) {
     }
     if (!state.processes) return -1;
 
+    if (mlfq_config_path && selected_algo != SCHED_MLFQ) {
+        fprintf(stderr, "Warning: --mlfq-config ignored for non-MLFQ algorithms.\n");
+    }
+
     if (compare_mode) {
         run_comparative_analysis(state.processes, state.num_processes, rr_quantum);
         free(state.processes);
@@ -378,8 +386,19 @@ int main(int argc, char *argv[]) {
 
     // MLFQ-specific initialization
     if (selected_algo == SCHED_MLFQ) {
-        state.num_levels = 3;
-        state.boost_period = 200; // Requirement: Period S = 200
+        MLFQConfig config;
+        int has_config = 0;
+
+        if (mlfq_config_path) {
+            if (parse_mlfq_config(mlfq_config_path, &config) != 0) {
+                fprintf(stderr, "Error: Failed to parse MLFQ config file.\n");
+                return -1;
+            }
+            has_config = 1;
+        }
+
+        state.num_levels = has_config ? config.num_levels : 3;
+        state.boost_period = has_config ? config.boost_period : 200; // Requirement: Period S = 200
         
         state.quantums = malloc(sizeof(int) * state.num_levels);
         state.allotments = malloc(sizeof(int) * state.num_levels);
@@ -392,17 +411,26 @@ int main(int argc, char *argv[]) {
             state.mlfq_queues[i].count = 0;
         }
 
-        // Level 0: Quantum 10, Allotment 10 (Matches: [A][B][C][D][E] then demote)
-        state.quantums[0] = 10;
-        state.allotments[0] = 10; 
+        if (has_config) {
+            for (int i = 0; i < state.num_levels; i++) {
+                state.quantums[i] = config.quantums[i];
+                state.allotments[i] = config.allotments[i];
+            }
+            free(config.quantums);
+            free(config.allotments);
+        } else {
+            // Level 0: Quantum 10, Allotment 10 (Matches: [A][B][C][D][E] then demote)
+            state.quantums[0] = 10;
+            state.allotments[0] = 10; 
 
-        // Level 1: Quantum 30, Allotment 30
-        state.quantums[1] = 30;
-        state.allotments[1] = 30;
+            // Level 1: Quantum 30, Allotment 30
+            state.quantums[1] = 30;
+            state.allotments[1] = 30;
 
-        // Level 2: FCFS
-        state.quantums[2] = -1;
-        state.allotments[2] = -1;
+            // Level 2: FCFS
+            state.quantums[2] = -1;
+            state.allotments[2] = -1;
+        }
 
         for (int i = 0; i < state.num_processes; i++) {
             state.processes[i].priority = 0;
@@ -492,4 +520,168 @@ static Process *load_processes_inline(const char *arg, int *num_processes) {
     free(input);
     *num_processes = count;
     return processes;
+}
+
+static char *trim_whitespace(char *text) {
+    if (!text) return NULL;
+
+    while (*text == ' ' || *text == '\t' || *text == '\r' || *text == '\n') {
+        text++;
+    }
+
+    if (*text == '\0') return text;
+
+    char *end = text + strlen(text) - 1;
+    while (end > text && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) {
+        end--;
+    }
+    end[1] = '\0';
+    return text;
+}
+
+static int parse_int_value(const char *text, int *out) {
+    if (!text || !out) return -1;
+
+    char *endptr = NULL;
+    long value = strtol(text, &endptr, 10);
+    if (endptr == text || *trim_whitespace(endptr) != '\0') return -1;
+
+    *out = (int)value;
+    return 0;
+}
+
+static int parse_int_list(const char *text, int count, int **out) {
+    if (!text || count <= 0 || !out) return -1;
+
+    int *values = malloc(sizeof(int) * count);
+    if (!values) return -1;
+
+    char *input = strdup(text);
+    if (!input) {
+        free(values);
+        return -1;
+    }
+
+    int idx = 0;
+    char *saveptr = NULL;
+    char *token = strtok_r(input, ",", &saveptr);
+    while (token && idx < count) {
+        char *trimmed = trim_whitespace(token);
+        if (parse_int_value(trimmed, &values[idx]) != 0) {
+            free(values);
+            free(input);
+            return -1;
+        }
+        idx++;
+        token = strtok_r(NULL, ",", &saveptr);
+    }
+
+    free(input);
+    if (idx != count || token != NULL) {
+        free(values);
+        return -1;
+    }
+
+    *out = values;
+    return 0;
+}
+
+static int parse_mlfq_config(const char *path, MLFQConfig *config) {
+    if (!path || !config) return -1;
+
+    FILE *file = fopen(path, "r");
+    if (!file) {
+        perror("Failed to open MLFQ config");
+        return -1;
+    }
+
+    int num_levels = -1;
+    int boost_period = -1;
+    char *quantums_text = NULL;
+    char *allotments_text = NULL;
+    int positional_index = 0;
+
+    char line[256];
+    while (fgets(line, sizeof(line), file)) {
+        char *trimmed = trim_whitespace(line);
+        if (trimmed[0] == '\0' || trimmed[0] == '#') continue;
+
+        char *equals = strchr(trimmed, '=');
+        if (equals) {
+            *equals = '\0';
+            char *key = trim_whitespace(trimmed);
+            char *value = trim_whitespace(equals + 1);
+
+            if (strcmp(key, "levels") == 0 || strcmp(key, "num_levels") == 0 || strcmp(key, "queues") == 0) {
+                if (parse_int_value(value, &num_levels) != 0) {
+                    fclose(file);
+                    return -1;
+                }
+            } else if (strcmp(key, "boost") == 0 || strcmp(key, "boost_period") == 0) {
+                if (parse_int_value(value, &boost_period) != 0) {
+                    fclose(file);
+                    return -1;
+                }
+            } else if (strcmp(key, "quantums") == 0 || strcmp(key, "quanta") == 0) {
+                free(quantums_text);
+                quantums_text = strdup(value);
+            } else if (strcmp(key, "allotments") == 0 || strcmp(key, "allotment") == 0) {
+                free(allotments_text);
+                allotments_text = strdup(value);
+            }
+        } else {
+            if (positional_index == 0) {
+                if (parse_int_value(trimmed, &num_levels) != 0) {
+                    fclose(file);
+                    return -1;
+                }
+            } else if (positional_index == 1) {
+                free(quantums_text);
+                quantums_text = strdup(trimmed);
+            } else if (positional_index == 2) {
+                free(allotments_text);
+                allotments_text = strdup(trimmed);
+            } else if (positional_index == 3) {
+                if (parse_int_value(trimmed, &boost_period) != 0) {
+                    fclose(file);
+                    return -1;
+                }
+            }
+            positional_index++;
+        }
+    }
+
+    fclose(file);
+
+    if (num_levels <= 0 || num_levels > MAX_LEVELS) {
+        free(quantums_text);
+        free(allotments_text);
+        return -1;
+    }
+
+    int *quantums = NULL;
+    int *allotments = NULL;
+    if (!quantums_text || !allotments_text) {
+        free(quantums_text);
+        free(allotments_text);
+        return -1;
+    }
+
+    if (parse_int_list(quantums_text, num_levels, &quantums) != 0 ||
+        parse_int_list(allotments_text, num_levels, &allotments) != 0) {
+        free(quantums_text);
+        free(allotments_text);
+        free(quantums);
+        free(allotments);
+        return -1;
+    }
+
+    free(quantums_text);
+    free(allotments_text);
+
+    config->num_levels = num_levels;
+    config->boost_period = (boost_period > 0) ? boost_period : 200;
+    config->quantums = quantums;
+    config->allotments = allotments;
+    return 0;
 }
